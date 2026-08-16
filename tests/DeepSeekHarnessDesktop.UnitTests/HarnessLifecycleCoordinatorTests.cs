@@ -1,0 +1,346 @@
+using DeepSeekHarnessDesktop.Models;
+using DeepSeekHarnessDesktop.Services;
+using DeepSeekHarnessDesktop.Services.Abstractions;
+
+namespace DeepSeekHarnessDesktop.UnitTests;
+
+public sealed class HarnessLifecycleCoordinatorTests
+{
+    [Fact]
+    public async Task StartCreatesOwnedProcessAfterUnreachablePreflight()
+    {
+        var fixture = await CreateFixtureAsync();
+        fixture.Health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        fixture.Health.ReadyResult = Confirmed();
+
+        await fixture.Coordinator.StartAsync(CancellationToken.None);
+
+        Assert.Equal(HarnessRuntimeState.RunningOwned, fixture.Coordinator.Current.State);
+        Assert.True(fixture.Coordinator.Current.IsOwned);
+        Assert.Equal(1, fixture.Process.StartCount);
+        await fixture.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ConfirmedExternalServiceDoesNotCreateProcess()
+    {
+        var fixture = await CreateFixtureAsync();
+        fixture.Health.EnqueueProbe(HealthProbeStatus.DshConfirmed);
+
+        await fixture.Coordinator.StartAsync(CancellationToken.None);
+
+        Assert.Equal(HarnessRuntimeState.RunningExternal, fixture.Coordinator.Current.State);
+        Assert.Equal(0, fixture.Process.StartCount);
+        await fixture.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task UnknownServiceFailsWithoutCreatingOrStoppingProcess()
+    {
+        var fixture = await CreateFixtureAsync();
+        fixture.Health.EnqueueProbe(HealthProbeStatus.ReachableUnknown);
+
+        await fixture.Coordinator.StartAsync(CancellationToken.None);
+
+        Assert.Equal(HarnessRuntimeState.Failed, fixture.Coordinator.Current.State);
+        Assert.Equal("DSH-E205", fixture.Coordinator.Current.Error?.Code);
+        Assert.Equal(0, fixture.Process.StartCount);
+        Assert.Equal(0, fixture.Process.StopCount);
+        await fixture.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ConcurrentStartRequestsCreateOneProcess()
+    {
+        var fixture = await CreateFixtureAsync();
+        fixture.Health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        fixture.Health.ReadyGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Health.ReadyResult = Confirmed();
+
+        var first = fixture.Coordinator.StartAsync(CancellationToken.None);
+        await fixture.Process.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var second = fixture.Coordinator.StartAsync(CancellationToken.None);
+        fixture.Health.ReadyGate.SetResult();
+        await Task.WhenAll(first, second);
+
+        Assert.Equal(1, fixture.Process.StartCount);
+        Assert.Equal(HarnessRuntimeState.RunningOwned, fixture.Coordinator.Current.State);
+        await fixture.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task StopDuringStartCancelsProbeAndCleansProcess()
+    {
+        var fixture = await CreateFixtureAsync();
+        fixture.Health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        fixture.Health.BlockReadyUntilCancelled = true;
+
+        var starting = fixture.Coordinator.StartAsync(CancellationToken.None);
+        await fixture.Process.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await fixture.Coordinator.StopAsync(CancellationToken.None);
+        await starting;
+
+        Assert.Equal(HarnessRuntimeState.Stopped, fixture.Coordinator.Current.State);
+        Assert.Equal(1, fixture.Process.StartCount);
+        Assert.Equal(1, fixture.Process.StopCount);
+        await fixture.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ReadyResultReturnedAfterCancellationCannotOverwriteStoppedState()
+    {
+        var fixture = await CreateFixtureAsync();
+        fixture.Health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        fixture.Health.ReadyGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Health.IgnoreCancellation = true;
+
+        var starting = fixture.Coordinator.StartAsync(CancellationToken.None);
+        await fixture.Process.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var stopping = fixture.Coordinator.StopAsync(CancellationToken.None);
+        fixture.Health.ReadyGate.SetResult();
+        await Task.WhenAll(starting, stopping);
+
+        Assert.Equal(HarnessRuntimeState.Stopped, fixture.Coordinator.Current.State);
+        Assert.False(fixture.Coordinator.Current.IsOwned);
+        await fixture.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task RestartWaitsForTwoUnreachableProbesBeforeSecondStart()
+    {
+        var fixture = await CreateRunningFixtureAsync();
+        fixture.Health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        fixture.Health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        fixture.Health.ReadyResult = Confirmed(new Uri("http://127.0.0.1:43124/"));
+
+        await fixture.Coordinator.RestartAsync(CancellationToken.None);
+
+        Assert.Equal(2, fixture.Process.StartCount);
+        Assert.Equal(1, fixture.Process.StopCount);
+        Assert.Equal(4, fixture.Health.ProbeCount);
+        Assert.Equal(new Uri("http://127.0.0.1:43124/"), fixture.Coordinator.Current.ServiceUri);
+        await fixture.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task RestartDoesNotStartWhenOldEndpointIsOccupied()
+    {
+        var fixture = await CreateRunningFixtureAsync();
+        fixture.Health.EnqueueProbe(HealthProbeStatus.ReachableUnknown);
+
+        await fixture.Coordinator.RestartAsync(CancellationToken.None);
+
+        Assert.Equal(HarnessRuntimeState.Failed, fixture.Coordinator.Current.State);
+        Assert.Equal("DSH-E205", fixture.Coordinator.Current.Error?.Code);
+        Assert.Equal(1, fixture.Process.StartCount);
+        await fixture.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ExternalHealthLossMovesToStoppedWithoutStartingProcess()
+    {
+        var process = new FakeProcessManager();
+        var health = new FakeHealthMonitor();
+        health.EnqueueProbe(HealthProbeStatus.DshConfirmed);
+        var watcher = new ControlledRuntimeWatcher();
+        var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = false };
+        var coordinator = new HarnessLifecycleCoordinator(
+            new HarnessStateMachine(),
+            new FakeResolver(settings),
+            process,
+            health,
+            settings,
+            watcher);
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        coordinator.StateChanged += (_, snapshot) =>
+        {
+            if (snapshot.State == HarnessRuntimeState.Stopped)
+            {
+                stopped.TrySetResult();
+            }
+        };
+
+        await coordinator.InitializeAsync(CancellationToken.None);
+        Assert.Equal(HarnessRuntimeState.RunningExternal, coordinator.Current.State);
+        watcher.LoseHealth();
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(HarnessRuntimeState.Stopped, coordinator.Current.State);
+        Assert.Equal(0, process.StartCount);
+        await coordinator.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ExitRaisedBeforeStartReturnsFailsWithProcessExitError()
+    {
+        var fixture = await CreateFixtureAsync();
+        fixture.Health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        fixture.Health.BlockReadyUntilCancelled = true;
+        fixture.Process.ExitDuringStartCode = 23;
+
+        await fixture.Coordinator.StartAsync(CancellationToken.None);
+
+        Assert.Equal(HarnessRuntimeState.Failed, fixture.Coordinator.Current.State);
+        Assert.Equal("DSH-E201", fixture.Coordinator.Current.Error?.Code);
+        Assert.Contains("code 23", fixture.Coordinator.Current.Error?.TechnicalMessage, StringComparison.Ordinal);
+        await fixture.DisposeAsync();
+    }
+
+    private static async Task<Fixture> CreateFixtureAsync()
+    {
+        var process = new FakeProcessManager();
+        var health = new FakeHealthMonitor();
+        var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = false };
+        var coordinator = new HarnessLifecycleCoordinator(
+            new HarnessStateMachine(),
+            new FakeResolver(settings),
+            process,
+            health,
+            settings);
+        await coordinator.InitializeAsync(CancellationToken.None);
+        return new Fixture(coordinator, process, health);
+    }
+
+    private static async Task<Fixture> CreateRunningFixtureAsync()
+    {
+        var fixture = await CreateFixtureAsync();
+        fixture.Health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        fixture.Health.ReadyResult = Confirmed();
+        await fixture.Coordinator.StartAsync(CancellationToken.None);
+        return fixture;
+    }
+
+    private static HealthProbeResult Confirmed(Uri? uri = null)
+    {
+        uri ??= new Uri("http://127.0.0.1:43123/");
+        return new HealthProbeResult(HealthProbeStatus.DshConfirmed, uri, uri);
+    }
+
+    private sealed record Fixture(
+        HarnessLifecycleCoordinator Coordinator,
+        FakeProcessManager Process,
+        FakeHealthMonitor Health) : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync() => Coordinator.DisposeAsync();
+    }
+
+    private sealed class FakeResolver(AppSettings settings) : IDshCommandResolver
+    {
+        public Task<DshLaunchOptions> ResolveAsync(AppSettings _, CancellationToken cancellationToken) =>
+            Task.FromResult(new DshLaunchOptions
+            {
+                ExecutablePath = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+                Arguments = [],
+                WorkingDirectory = settings.WorkspacePath,
+                FallbackUri = settings.ServiceUri,
+                StartupTimeout = TimeSpan.FromSeconds(5),
+            });
+    }
+
+    private sealed class FakeProcessManager : IHarnessProcessManager
+    {
+        private int _nextProcessId = 100;
+        public event EventHandler<ProcessOutputEventArgs>? OutputReceived;
+        public event EventHandler<ProcessExitedEventArgs>? ProcessExited;
+        public HarnessProcessInfo? Current { get; private set; }
+        public bool IsRunning => Current is not null;
+        public int StartCount { get; private set; }
+        public int StopCount { get; private set; }
+        public int? ExitDuringStartCode { get; set; }
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<HarnessProcessInfo> StartAsync(DshLaunchOptions options, CancellationToken cancellationToken)
+        {
+            StartCount++;
+            var process = new HarnessProcessInfo(++_nextProcessId, DateTimeOffset.UtcNow, options.WorkingDirectory, null);
+            Current = process;
+            Started.TrySetResult();
+            OutputReceived?.Invoke(this, new ProcessOutputEventArgs(new ProcessOutputLine(
+                DateTimeOffset.UtcNow, ProcessOutputSource.StandardOutput, "ready http://127.0.0.1:43123/")));
+            if (ExitDuringStartCode is { } exitCode)
+            {
+                Current = null;
+                ProcessExited?.Invoke(this, new ProcessExitedEventArgs(process.ProcessId, exitCode));
+            }
+            return Task.FromResult(process);
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            if (Current is { } current)
+            {
+                StopCount++;
+                Current = null;
+                ProcessExited?.Invoke(this, new ProcessExitedEventArgs(current.ProcessId, 0));
+            }
+            return Task.CompletedTask;
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class FakeHealthMonitor : IHarnessHealthMonitor
+    {
+        private readonly Queue<HealthProbeStatus> _probes = new();
+        public int ProbeCount { get; private set; }
+        public HealthProbeResult ReadyResult { get; set; } = Confirmed();
+        public TaskCompletionSource? ReadyGate { get; set; }
+        public bool BlockReadyUntilCancelled { get; set; }
+        public bool IgnoreCancellation { get; set; }
+
+        public void EnqueueProbe(HealthProbeStatus status) => _probes.Enqueue(status);
+
+        public Task<HealthProbeResult> ProbeAsync(Uri uri, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            ProbeCount++;
+            var status = _probes.Count > 0 ? _probes.Dequeue() : HealthProbeStatus.Unreachable;
+            return Task.FromResult(new HealthProbeResult(status, uri, status == HealthProbeStatus.DshConfirmed ? uri : null));
+        }
+
+        public async Task<HealthProbeResult> WaitUntilReadyAsync(
+            Func<Uri> uriProvider,
+            TimeSpan startupTimeout,
+            CancellationToken cancellationToken)
+        {
+            if (BlockReadyUntilCancelled)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            if (ReadyGate is not null)
+            {
+                if (IgnoreCancellation)
+                {
+                    await ReadyGate.Task;
+                }
+                else
+                {
+                    await ReadyGate.Task.WaitAsync(cancellationToken);
+                }
+            }
+            return ReadyResult;
+        }
+    }
+
+    private sealed class ControlledRuntimeWatcher : IRuntimeHealthWatcher
+    {
+        private readonly TaskCompletionSource<RuntimeHealthLost?> _result =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private Uri? _uri;
+        private long _generation;
+
+        public Task<RuntimeHealthLost?> WatchAsync(Uri uri, long generation, CancellationToken cancellationToken)
+        {
+            _uri = uri;
+            _generation = generation;
+            return _result.Task.WaitAsync(cancellationToken);
+        }
+
+        public void LoseHealth()
+        {
+            var uri = _uri ?? throw new InvalidOperationException("Watcher has not started.");
+            _result.TrySetResult(new RuntimeHealthLost(
+                _generation,
+                new HealthProbeResult(HealthProbeStatus.Unreachable, uri)));
+        }
+    }
+}

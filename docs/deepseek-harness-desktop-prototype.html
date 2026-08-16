@@ -1,0 +1,997 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>DeepSeek Harness Desktop - 交互原型</title>
+  <style>
+    :root {
+      --page: #dfe3e6;
+      --window: #f7f8f8;
+      --surface: #ffffff;
+      --surface-subtle: #f2f4f3;
+      --surface-hover: #e9eeec;
+      --ink: #18211d;
+      --muted: #66716b;
+      --border: #d6dcda;
+      --border-strong: #bdc7c3;
+      --brand: #076b53;
+      --brand-strong: #055742;
+      --brand-soft: #e4f4ee;
+      --amber: #a65f00;
+      --amber-soft: #fff2d8;
+      --danger: #b42318;
+      --danger-soft: #fff0ee;
+      --shadow: 0 20px 60px rgba(35, 44, 40, 0.18);
+      --focus: #16866a;
+      font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background: var(--page);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { margin: 0; min-width: 320px; min-height: 100%; }
+
+    body {
+      min-height: 100vh;
+      padding: 24px;
+      display: grid;
+      place-items: center;
+      background: var(--page);
+      letter-spacing: 0;
+    }
+
+    button, input, select { font: inherit; letter-spacing: 0; }
+
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 3px solid rgba(22, 134, 106, 0.25);
+      outline-offset: 2px;
+    }
+
+    .prototype-window {
+      width: min(1480px, 100%);
+      height: min(920px, calc(100vh - 48px));
+      min-height: 660px;
+      display: grid;
+      grid-template-rows: 38px auto 1fr 28px;
+      overflow: hidden;
+      background: var(--window);
+      border: 1px solid #aeb8b4;
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      position: relative;
+    }
+
+    .titlebar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      padding-left: 12px;
+      background: #eef1f0;
+      border-bottom: 1px solid var(--border);
+      user-select: none;
+    }
+
+    .app-mark {
+      width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      color: #fff;
+      background: var(--brand);
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .window-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      color: #36413c;
+    }
+
+    .prototype-tag {
+      margin-left: 2px;
+      padding: 2px 6px;
+      border: 1px solid var(--border-strong);
+      border-radius: 4px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .window-buttons { margin-left: auto; height: 100%; display: flex; }
+
+    .window-button {
+      width: 46px;
+      height: 100%;
+      border: 0;
+      border-left: 1px solid transparent;
+      background: transparent;
+      color: #46514c;
+      cursor: default;
+    }
+
+    .window-button:hover { background: #e0e5e3; }
+    .window-button.close:hover { color: #fff; background: #c42b1c; }
+
+    .commandbar {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto auto;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      z-index: 5;
+    }
+
+    .workspace-control {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: auto minmax(120px, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .control-label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+    .path-field {
+      min-width: 0;
+      height: 32px;
+      padding: 0 10px;
+      color: #2a3530;
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      line-height: 30px;
+      font-family: Consolas, "Microsoft YaHei UI", monospace;
+      font-size: 12px;
+    }
+
+    .button {
+      min-height: 32px;
+      padding: 0 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border: 1px solid var(--border-strong);
+      border-radius: 5px;
+      background: var(--surface);
+      color: #26312c;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+    }
+
+    .button:hover:not(:disabled) { background: var(--surface-hover); border-color: #9eaaa5; }
+    .button:active:not(:disabled) { background: #dfe6e3; }
+    .button:disabled { color: #9ba49f; background: #f3f5f4; border-color: #e0e4e2; cursor: not-allowed; }
+
+    .button.primary { color: #fff; background: var(--brand); border-color: var(--brand); }
+    .button.primary:hover:not(:disabled) { background: var(--brand-strong); border-color: var(--brand-strong); }
+    .button.danger { color: var(--danger); }
+    .button.icon { width: 34px; padding: 0; font-size: 18px; }
+
+    .status-cluster { display: flex; align-items: center; gap: 8px; min-width: 148px; }
+
+    .status-indicator {
+      width: 9px;
+      height: 9px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: #89938e;
+      box-shadow: 0 0 0 3px #edf0ef;
+    }
+
+    .status-indicator.running { background: #15805f; box-shadow: 0 0 0 3px #dbf1e9; }
+    .status-indicator.starting { background: #c97908; box-shadow: 0 0 0 3px #fff0d3; animation: pulse 1.1s ease-in-out infinite; }
+    .status-indicator.failed { background: var(--danger); box-shadow: 0 0 0 3px #fde2df; }
+    .status-text { font-size: 12px; line-height: 1.25; }
+    .status-text strong { display: block; font-weight: 500; }
+    .status-text span { color: var(--muted); font-size: 11px; }
+
+    .actions { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+
+    .scenario-select {
+      height: 32px;
+      max-width: 128px;
+      border: 1px solid var(--border-strong);
+      border-radius: 5px;
+      background: var(--surface);
+      color: var(--ink);
+      padding: 0 8px;
+    }
+
+    .workspace-area { min-height: 0; position: relative; overflow: hidden; background: #f3f5f4; }
+
+    .webapp {
+      height: 100%;
+      display: grid;
+      grid-template-columns: 224px 1fr;
+      background: #fcfdfc;
+    }
+
+    .web-sidebar {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: #f2f5f3;
+      border-right: 1px solid #dde3e0;
+      padding: 14px 12px;
+    }
+
+    .dsh-brand { display: flex; align-items: center; gap: 9px; padding: 3px 4px 14px; font-weight: 500; }
+    .dsh-logo { width: 24px; height: 24px; border-radius: 5px; display: grid; place-items: center; background: #173f34; color: #fff; font-size: 11px; }
+
+    .new-session {
+      height: 36px;
+      border: 1px solid #cbd5d0;
+      border-radius: 6px;
+      background: #fff;
+      color: #203029;
+      text-align: left;
+      padding: 0 11px;
+      cursor: pointer;
+    }
+
+    .new-session:hover { background: #eaf3ef; }
+
+    .sidebar-caption { margin: 18px 8px 7px; color: #77817c; font-size: 11px; text-transform: uppercase; }
+
+    .sidebar-item {
+      width: 100%;
+      min-height: 34px;
+      padding: 7px 9px;
+      border: 0;
+      border-radius: 5px;
+      color: #49554f;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .sidebar-item:hover { background: #e8eeeb; }
+    .sidebar-item.active { background: #dfeae5; color: #153c31; font-weight: 500; }
+    .sidebar-footer { margin-top: auto; border-top: 1px solid #dce3df; padding-top: 10px; }
+
+    .web-main { min-width: 0; min-height: 0; display: grid; grid-template-rows: 52px 1fr auto; }
+
+    .web-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 18px;
+      border-bottom: 1px solid #e1e6e4;
+      background: rgba(255, 255, 255, 0.94);
+    }
+
+    .web-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 500; }
+    .web-subtitle { color: #7a8580; font-size: 11px; }
+    .web-header-actions { margin-left: auto; display: flex; gap: 6px; }
+
+    .mini-button {
+      height: 30px;
+      padding: 0 9px;
+      border: 1px solid #d6ddda;
+      border-radius: 5px;
+      background: #fff;
+      color: #4a5751;
+      cursor: pointer;
+    }
+
+    .conversation {
+      min-height: 0;
+      overflow: auto;
+      padding: 28px clamp(24px, 8vw, 110px);
+    }
+
+    .message { max-width: 760px; margin: 0 auto 22px; }
+    .message-label { margin-bottom: 7px; color: #77817c; font-size: 11px; }
+    .user-bubble { margin-left: auto; width: fit-content; max-width: 78%; padding: 10px 12px; border-radius: 7px; background: #e8efec; color: #24302b; font-size: 13px; line-height: 1.55; }
+    .assistant-copy { font-size: 13px; line-height: 1.65; color: #2b3631; }
+
+    .tool-row {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: 16px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      padding: 9px 10px;
+      border: 1px solid #dbe2df;
+      border-radius: 6px;
+      background: #fafcfb;
+      color: #4b5751;
+      font-size: 12px;
+    }
+
+    .tool-check { width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%; background: #dff1e9; color: #087154; font-size: 10px; }
+    .tool-meta { color: #84908a; font-family: Consolas, monospace; font-size: 11px; }
+
+    .composer-wrap { padding: 12px clamp(24px, 8vw, 110px) 18px; background: linear-gradient(to bottom, rgba(252,253,252,0), #fcfdfc 18%); }
+    .composer { max-width: 760px; min-height: 76px; margin: 0 auto; padding: 10px 10px 8px; border: 1px solid #cbd5d1; border-radius: 7px; background: #fff; box-shadow: 0 6px 20px rgba(30, 45, 39, 0.08); }
+    .composer textarea { width: 100%; min-height: 34px; max-height: 90px; resize: none; border: 0; outline: 0; padding: 2px 3px; color: #29342f; background: transparent; font: inherit; font-size: 13px; }
+    .composer-footer { display: flex; align-items: center; gap: 6px; }
+    .model-chip { color: #69756f; font-size: 11px; }
+    .send-button { margin-left: auto; width: 30px; height: 30px; border: 0; border-radius: 5px; background: #1e4d40; color: #fff; cursor: pointer; }
+
+    .state-screen {
+      height: 100%;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 30px;
+      background: #f7f9f8;
+    }
+
+    .state-screen.visible { display: flex; }
+    .state-content { width: min(520px, 100%); text-align: center; }
+    .state-symbol { width: 48px; height: 48px; display: grid; place-items: center; margin: 0 auto 18px; border-radius: 8px; background: #e7ecea; color: #4f5c56; font-size: 24px; }
+    .state-symbol.starting { background: var(--amber-soft); color: var(--amber); }
+    .state-symbol.failed { background: var(--danger-soft); color: var(--danger); }
+    .state-content h2 { margin: 0 0 7px; font-size: 19px; font-weight: 500; }
+    .state-content p { margin: 0 auto 18px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    .state-actions { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+
+    .progress-track { height: 4px; max-width: 310px; margin: 22px auto 10px; overflow: hidden; background: #e1e5e3; border-radius: 2px; }
+    .progress-bar { height: 100%; width: 38%; background: var(--amber); animation: progress 1.4s ease-in-out infinite; }
+    .state-log { font-family: Consolas, monospace; color: #7a8580; font-size: 11px; }
+
+    .statusbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 10px;
+      border-top: 1px solid var(--border);
+      background: #eef1f0;
+      color: #66716b;
+      font-size: 10px;
+    }
+
+    .statusbar .right { margin-left: auto; }
+
+    .toast {
+      position: absolute;
+      right: 18px;
+      bottom: 42px;
+      max-width: min(340px, calc(100% - 36px));
+      padding: 10px 12px;
+      border: 1px solid #b9c5c0;
+      border-radius: 6px;
+      background: #1f2925;
+      color: #fff;
+      box-shadow: 0 10px 30px rgba(20, 30, 26, 0.2);
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
+      transition: opacity 160ms ease, transform 160ms ease;
+      font-size: 12px;
+      z-index: 30;
+    }
+
+    .toast.visible { opacity: 1; transform: translateY(0); }
+
+    .backdrop {
+      position: absolute;
+      inset: 0;
+      z-index: 40;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(20, 27, 24, 0.38);
+    }
+
+    .backdrop.visible { display: flex; }
+
+    .dialog {
+      width: min(520px, 100%);
+      max-height: calc(100% - 40px);
+      overflow: auto;
+      border: 1px solid var(--border-strong);
+      border-radius: 7px;
+      background: var(--surface);
+      box-shadow: 0 20px 55px rgba(20, 30, 26, 0.24);
+    }
+
+    .dialog-header { display: flex; align-items: center; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+    .dialog-header h2 { margin: 0; font-size: 16px; font-weight: 500; }
+    .dialog-close { margin-left: auto; width: 30px; height: 30px; border: 0; background: transparent; border-radius: 4px; cursor: pointer; font-size: 18px; }
+    .dialog-close:hover { background: var(--surface-hover); }
+    .dialog-body { padding: 16px 18px; }
+    .dialog-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px 16px; border-top: 1px solid var(--border); }
+
+    .field { display: grid; gap: 6px; margin-bottom: 14px; }
+    .field label { font-size: 12px; color: #4f5b55; }
+    .text-input, .select-input { width: 100%; height: 34px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--ink); background: #fff; }
+    .check-row { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: 12px; }
+
+    .directory-list { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .directory-option { width: 100%; padding: 10px 12px; display: flex; gap: 10px; align-items: center; border: 0; border-bottom: 1px solid var(--border); background: #fff; text-align: left; cursor: pointer; }
+    .directory-option:last-child { border-bottom: 0; }
+    .directory-option:hover { background: var(--surface-hover); }
+    .folder-mark { color: var(--amber); font-size: 16px; }
+    .directory-name { display: block; font-size: 12px; color: var(--ink); }
+    .directory-path { display: block; margin-top: 2px; color: var(--muted); font-family: Consolas, monospace; font-size: 10px; }
+
+    .drawer {
+      position: absolute;
+      top: 38px;
+      right: 0;
+      bottom: 28px;
+      z-index: 35;
+      width: min(430px, 92%);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      background: #fff;
+      border-left: 1px solid var(--border-strong);
+      box-shadow: -15px 0 40px rgba(28, 38, 33, 0.14);
+      transform: translateX(105%);
+      transition: transform 180ms ease;
+    }
+
+    .drawer.visible { transform: translateX(0); }
+    .drawer-header { display: flex; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .drawer-header h2 { margin: 0; font-size: 15px; font-weight: 500; }
+    .drawer-content { min-height: 0; overflow: auto; padding: 16px; }
+    .drawer-section { margin-bottom: 22px; }
+    .drawer-section h3 { margin: 0 0 8px; font-size: 12px; font-weight: 500; color: #3b4741; }
+    .drawer-section p, .drawer-section li { color: #65716b; font-size: 12px; line-height: 1.6; }
+    .drawer-section ul { margin: 0; padding-left: 18px; }
+    .spec-row { display: grid; grid-template-columns: 105px 1fr; gap: 10px; padding: 8px 0; border-bottom: 1px solid #edf0ef; font-size: 12px; }
+    .spec-row span:first-child { color: #7b8681; }
+    .spec-row span:last-child { color: #34413b; }
+
+    .log-terminal { margin: 0; min-height: 270px; padding: 12px; overflow: auto; border-radius: 5px; background: #18211d; color: #dce7e2; font: 11px/1.65 Consolas, monospace; white-space: pre-wrap; }
+
+    .refreshing .webapp { opacity: 0.55; }
+    .refreshing::after {
+      content: "正在重新加载页面...";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      padding: 9px 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: 5px;
+      background: #fff;
+      color: #38443e;
+      font-size: 12px;
+      box-shadow: 0 8px 24px rgba(30, 40, 36, 0.12);
+    }
+
+    @keyframes pulse { 50% { transform: scale(0.78); opacity: 0.55; } }
+    @keyframes progress { 0% { transform: translateX(-100%); } 60%, 100% { transform: translateX(270%); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+    }
+
+    @media (max-width: 960px) {
+      body { padding: 0; }
+      .prototype-window { width: 100%; height: 100vh; min-height: 640px; border: 0; border-radius: 0; box-shadow: none; }
+      .commandbar { grid-template-columns: 1fr auto; }
+      .status-cluster { grid-column: 1; grid-row: 2; }
+      .actions { grid-column: 2; grid-row: 1 / span 2; }
+      .scenario-select { display: none; }
+      .webapp { grid-template-columns: 186px 1fr; }
+    }
+
+    @media (max-width: 700px) {
+      .prototype-window { grid-template-rows: 38px auto 1fr 28px; }
+      .commandbar { grid-template-columns: 1fr; gap: 8px; }
+      .workspace-control { grid-template-columns: auto 1fr auto; }
+      .status-cluster { grid-column: 1; grid-row: auto; }
+      .actions { grid-column: 1; grid-row: auto; justify-content: flex-start; flex-wrap: wrap; }
+      .webapp { grid-template-columns: 1fr; }
+      .web-sidebar { display: none; }
+      .conversation { padding: 20px 16px; }
+      .composer-wrap { padding: 10px 16px 14px; }
+      .web-subtitle { display: none; }
+      .button-label-optional { display: none; }
+    }
+
+    @media (max-width: 440px) {
+      .prototype-tag, .control-label, #restartLabel { display: none; }
+      .workspace-control { grid-template-columns: 1fr auto; }
+      .path-field { grid-column: 1; }
+      .user-bubble { max-width: 92%; }
+      .window-button { width: 38px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="prototype-window" aria-label="DeepSeek Harness Desktop 交互原型">
+    <header class="titlebar">
+      <div class="app-mark" aria-hidden="true">DS</div>
+      <div class="window-title">DeepSeek Harness Desktop</div>
+      <span class="prototype-tag">交互原型 v0.1</span>
+      <div class="window-buttons" aria-label="窗口控件">
+        <button class="window-button" type="button" aria-label="最小化">－</button>
+        <button class="window-button" type="button" aria-label="最大化">□</button>
+        <button class="window-button close" type="button" aria-label="关闭">×</button>
+      </div>
+    </header>
+
+    <section class="commandbar" aria-label="应用控制栏">
+      <div class="workspace-control">
+        <span class="control-label">工作目录</span>
+        <div class="path-field" id="workspacePath" title="E:\DeepSeekCLI">E:\DeepSeekCLI</div>
+        <button class="button" id="chooseDirectory" type="button">选择目录</button>
+      </div>
+
+      <div class="status-cluster" aria-live="polite">
+        <span class="status-indicator running" id="statusDot"></span>
+        <div class="status-text">
+          <strong id="statusTitle">DSH 运行中</strong>
+          <span id="statusDetail">127.0.0.1:3080 · PID 18432</span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <select class="scenario-select" id="scenarioSelect" aria-label="原型场景">
+          <option value="running">运行中</option>
+          <option value="starting">启动中</option>
+          <option value="stopped">已停止</option>
+          <option value="failed">启动失败</option>
+          <option value="external">外部实例</option>
+        </select>
+        <button class="button icon" id="reloadButton" type="button" aria-label="刷新页面" title="刷新页面">↻</button>
+        <button class="button" id="restartButton" type="button"><span aria-hidden="true">↻</span><span id="restartLabel">重启 DSH</span></button>
+        <button class="button danger" id="stopButton" type="button"><span aria-hidden="true">■</span><span>停止</span></button>
+        <button class="button primary" id="startButton" type="button" hidden><span aria-hidden="true">▶</span><span>启动 DSH</span></button>
+        <button class="button" id="logsButton" type="button">日志</button>
+        <button class="button" id="specButton" type="button">设计规格</button>
+      </div>
+    </section>
+
+    <section class="workspace-area" id="workspaceArea">
+      <div class="webapp" id="webApp">
+        <aside class="web-sidebar">
+          <div class="dsh-brand"><span class="dsh-logo">DS</span><span>DeepSeek Harness</span></div>
+          <button class="new-session" type="button">＋ 新建会话</button>
+          <div class="sidebar-caption">工作区</div>
+          <button class="sidebar-item active" type="button">DeepSeekCLI</button>
+          <button class="sidebar-item" type="button">AIWorkflowStudio</button>
+          <div class="sidebar-caption">最近会话</div>
+          <button class="sidebar-item active" type="button">桌面启动器方案</button>
+          <button class="sidebar-item" type="button">分析项目结构</button>
+          <button class="sidebar-item" type="button">运行测试并修复问题</button>
+          <div class="sidebar-footer">
+            <button class="sidebar-item" type="button">设置</button>
+          </div>
+        </aside>
+
+        <section class="web-main">
+          <header class="web-header">
+            <div>
+              <div class="web-title">桌面启动器方案</div>
+              <div class="web-subtitle">E:\DeepSeekCLI</div>
+            </div>
+            <div class="web-header-actions">
+              <button class="mini-button" type="button">权限：按需询问</button>
+              <button class="mini-button" type="button">deepseek-chat</button>
+            </div>
+          </header>
+
+          <div class="conversation">
+            <article class="message">
+              <div class="message-label">你</div>
+              <div class="user-bubble">检查项目并给出下一步实现计划。</div>
+            </article>
+            <article class="message">
+              <div class="message-label">DeepSeek Harness</div>
+              <div class="assistant-copy">
+                已完成项目检查。当前目录包含开发方案和交互原型，下一步可以创建 WPF 工程，接入 WebView2，并实现 DSH 的进程生命周期管理。
+              </div>
+              <div class="tool-row">
+                <span class="tool-check">✓</span>
+                <span>读取项目文件</span>
+                <span class="tool-meta">2 files</span>
+              </div>
+              <div class="tool-row">
+                <span class="tool-check">✓</span>
+                <span>检查本机 Node.js 与 DSH 环境</span>
+                <span class="tool-meta">1.4s</span>
+              </div>
+            </article>
+          </div>
+
+          <div class="composer-wrap">
+            <div class="composer">
+              <textarea aria-label="任务输入" placeholder="向 DeepSeek Harness 发送任务..."></textarea>
+              <div class="composer-footer">
+                <span class="model-chip">Default · 当前工作区</span>
+                <button class="send-button" type="button" aria-label="发送">↑</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="state-screen" id="stateScreen">
+        <div class="state-content">
+          <div class="state-symbol" id="stateSymbol">■</div>
+          <h2 id="stateHeading">DeepSeek Harness 已停止</h2>
+          <p id="stateDescription">启动 DSH 后，Web UI 将自动在当前窗口中打开。</p>
+          <div id="progressBlock" hidden>
+            <div class="progress-track"><div class="progress-bar"></div></div>
+            <div class="state-log" id="stateLog">正在执行 npx -y @deepseek-ai/dsh@0.1.0-rc.6 web</div>
+          </div>
+          <div class="state-actions" id="stateActions">
+            <button class="button primary" id="statePrimary" type="button">启动 DSH</button>
+            <button class="button" id="stateLogs" type="button">查看日志</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="statusbar">
+      <span id="footerOwnership">应用实例</span>
+      <span>WebView2</span>
+      <span class="right" id="footerUrl">http://127.0.0.1:3080/</span>
+    </footer>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <div class="backdrop" id="directoryBackdrop" role="presentation">
+      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="directoryTitle">
+        <header class="dialog-header">
+          <h2 id="directoryTitle">选择 DSH 工作目录</h2>
+          <button class="dialog-close" type="button" data-close="directoryBackdrop" aria-label="关闭">×</button>
+        </header>
+        <div class="dialog-body">
+          <div class="field">
+            <label for="customPath">目录路径</label>
+            <input class="text-input" id="customPath" value="E:\DeepSeekCLI">
+          </div>
+          <div class="directory-list" aria-label="最近目录">
+            <button class="directory-option" type="button" data-path="E:\DeepSeekCLI">
+              <span class="folder-mark" aria-hidden="true">▰</span>
+              <span><span class="directory-name">DeepSeekCLI</span><span class="directory-path">E:\DeepSeekCLI</span></span>
+            </button>
+            <button class="directory-option" type="button" data-path="E:\AIWorkflowStudio">
+              <span class="folder-mark" aria-hidden="true">▰</span>
+              <span><span class="directory-name">AIWorkflowStudio</span><span class="directory-path">E:\AIWorkflowStudio</span></span>
+            </button>
+          </div>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button" type="button" data-close="directoryBackdrop">取消</button>
+          <button class="button primary" id="confirmDirectory" type="button">使用此目录</button>
+        </footer>
+      </section>
+    </div>
+
+    <aside class="drawer" id="logDrawer" aria-label="启动日志">
+      <header class="drawer-header">
+        <h2>DSH 启动日志</h2>
+        <button class="dialog-close" id="closeLogs" type="button" aria-label="关闭日志">×</button>
+      </header>
+      <div class="drawer-content">
+        <pre class="log-terminal" id="logTerminal">[18:32:01] [desktop] 工作目录 E:\DeepSeekCLI
+[18:32:01] [desktop] 启动 npx -y @deepseek-ai/dsh@0.1.0-rc.6 web
+[18:32:02] [dsh] loading profile: web
+[18:32:03] [dsh] server listening at http://127.0.0.1:3080
+[18:32:03] [desktop] 健康检查通过
+[18:32:03] [webview] 页面加载完成</pre>
+      </div>
+    </aside>
+
+    <aside class="drawer" id="specDrawer" aria-label="原型设计规格">
+      <header class="drawer-header">
+        <h2>原型设计规格</h2>
+        <button class="dialog-close" id="closeSpecs" type="button" aria-label="关闭设计规格">×</button>
+      </header>
+      <div class="drawer-content">
+        <section class="drawer-section">
+          <h3>产品边界</h3>
+          <p>桌面端只负责 DSH 进程生命周期和 WebView2 宿主能力。模型、会话、审批和工具操作继续由官方 Web UI 提供。</p>
+        </section>
+        <section class="drawer-section">
+          <h3>界面结构</h3>
+          <div class="spec-row"><span>窗口标题栏</span><span>应用身份与系统窗口操作</span></div>
+          <div class="spec-row"><span>桌面控制栏</span><span>工作目录、运行状态、刷新、重启和停止</span></div>
+          <div class="spec-row"><span>内容区域</span><span>WebView2 或原生启动状态页</span></div>
+          <div class="spec-row"><span>状态栏</span><span>进程所有权、渲染引擎和当前地址</span></div>
+        </section>
+        <section class="drawer-section">
+          <h3>关键交互</h3>
+          <ul>
+            <li>刷新只重新加载页面，不重启 DSH。</li>
+            <li>重启严格执行停止完成后再启动。</li>
+            <li>停止只结束当前应用创建的进程树。</li>
+            <li>外部实例可连接，但停止与重启不可用。</li>
+            <li>切换工作目录时，运行中的实例需要重启。</li>
+          </ul>
+        </section>
+        <section class="drawer-section">
+          <h3>状态覆盖</h3>
+          <p>控制栏中的“原型场景”可切换运行中、启动中、已停止、启动失败和外部实例五种界面状态。</p>
+        </section>
+        <section class="drawer-section">
+          <h3>实现基线</h3>
+          <div class="spec-row"><span>桌面框架</span><span>.NET 8 / WPF</span></div>
+          <div class="spec-row"><span>网页宿主</span><span>Microsoft Edge WebView2</span></div>
+          <div class="spec-row"><span>默认命令</span><span>npx -y @deepseek-ai/dsh@0.1.0-rc.6 web</span></div>
+          <div class="spec-row"><span>默认地址</span><span>http://127.0.0.1:3080/</span></div>
+        </section>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    (() => {
+      const ui = {
+        scenario: document.getElementById('scenarioSelect'),
+        statusDot: document.getElementById('statusDot'),
+        statusTitle: document.getElementById('statusTitle'),
+        statusDetail: document.getElementById('statusDetail'),
+        start: document.getElementById('startButton'),
+        stop: document.getElementById('stopButton'),
+        restart: document.getElementById('restartButton'),
+        reload: document.getElementById('reloadButton'),
+        webApp: document.getElementById('webApp'),
+        stateScreen: document.getElementById('stateScreen'),
+        stateSymbol: document.getElementById('stateSymbol'),
+        stateHeading: document.getElementById('stateHeading'),
+        stateDescription: document.getElementById('stateDescription'),
+        progressBlock: document.getElementById('progressBlock'),
+        statePrimary: document.getElementById('statePrimary'),
+        stateActions: document.getElementById('stateActions'),
+        footerOwnership: document.getElementById('footerOwnership'),
+        footerUrl: document.getElementById('footerUrl'),
+        workspaceArea: document.getElementById('workspaceArea'),
+        workspacePath: document.getElementById('workspacePath'),
+        customPath: document.getElementById('customPath'),
+        directoryBackdrop: document.getElementById('directoryBackdrop'),
+        logDrawer: document.getElementById('logDrawer'),
+        specDrawer: document.getElementById('specDrawer'),
+        logTerminal: document.getElementById('logTerminal'),
+        toast: document.getElementById('toast')
+      };
+
+      const stateCopy = {
+        stopped: {
+          title: 'DSH 已停止', detail: '服务未运行', symbol: '■', heading: 'DeepSeek Harness 已停止',
+          description: '启动 DSH 后，Web UI 将自动在当前窗口中打开。', primary: '启动 DSH'
+        },
+        failed: {
+          title: '启动失败', detail: '进程退出码 1', symbol: '!', heading: '无法启动 DeepSeek Harness',
+          description: '未能连接到本地服务。请检查 Node.js、npm 和启动日志后重试。', primary: '重试启动'
+        }
+      };
+
+      let state = 'running';
+      let sequence = 0;
+      let toastTimer = null;
+
+      const now = () => new Date().toLocaleTimeString('zh-CN', { hour12: false });
+
+      function addLog(source, message) {
+        ui.logTerminal.textContent += `\n[${now()}] [${source}] ${message}`;
+        ui.logTerminal.scrollTop = ui.logTerminal.scrollHeight;
+      }
+
+      function showToast(message) {
+        window.clearTimeout(toastTimer);
+        ui.toast.textContent = message;
+        ui.toast.classList.add('visible');
+        toastTimer = window.setTimeout(() => ui.toast.classList.remove('visible'), 2100);
+      }
+
+      function closePanels() {
+        ui.logDrawer.classList.remove('visible');
+        ui.specDrawer.classList.remove('visible');
+      }
+
+      function setState(nextState, options = {}) {
+        state = nextState;
+        ui.scenario.value = nextState;
+        ui.statusDot.className = 'status-indicator';
+        ui.webApp.style.display = 'none';
+        ui.stateScreen.classList.add('visible');
+        ui.progressBlock.hidden = true;
+        ui.stateActions.hidden = false;
+        ui.start.hidden = true;
+        ui.stop.hidden = false;
+        ui.restart.hidden = false;
+        ui.reload.disabled = true;
+        ui.stop.disabled = false;
+        ui.restart.disabled = false;
+        ui.footerUrl.textContent = 'http://127.0.0.1:3080/';
+
+        if (nextState === 'running') {
+          ui.webApp.style.display = 'grid';
+          ui.stateScreen.classList.remove('visible');
+          ui.statusDot.classList.add('running');
+          ui.statusTitle.textContent = 'DSH 运行中';
+          ui.statusDetail.textContent = '127.0.0.1:3080 · PID 18432';
+          ui.reload.disabled = false;
+          ui.footerOwnership.textContent = '应用实例';
+          return;
+        }
+
+        if (nextState === 'external') {
+          ui.webApp.style.display = 'grid';
+          ui.stateScreen.classList.remove('visible');
+          ui.statusDot.classList.add('running');
+          ui.statusTitle.textContent = '外部实例运行中';
+          ui.statusDetail.textContent = '127.0.0.1:3080 · 只读控制';
+          ui.reload.disabled = false;
+          ui.stop.disabled = true;
+          ui.restart.disabled = true;
+          ui.footerOwnership.textContent = '外部实例 · 不受当前应用管理';
+          return;
+        }
+
+        if (nextState === 'starting') {
+          ui.statusDot.classList.add('starting');
+          ui.statusTitle.textContent = options.restart ? '正在重启 DSH' : '正在启动 DSH';
+          ui.statusDetail.textContent = '等待 127.0.0.1:3080';
+          ui.stateSymbol.className = 'state-symbol starting';
+          ui.stateSymbol.textContent = '…';
+          ui.stateHeading.textContent = options.restart ? '正在重新启动 DeepSeek Harness' : '正在启动 DeepSeek Harness';
+          ui.stateDescription.textContent = '服务就绪后将自动加载 Web UI。';
+          ui.progressBlock.hidden = false;
+          ui.stateActions.hidden = true;
+          ui.stop.disabled = false;
+          ui.restart.disabled = true;
+          ui.footerOwnership.textContent = '正在创建应用实例';
+          return;
+        }
+
+        const copy = stateCopy[nextState];
+        ui.statusDot.classList.add(nextState === 'failed' ? 'failed' : '');
+        ui.statusTitle.textContent = copy.title;
+        ui.statusDetail.textContent = copy.detail;
+        ui.stateSymbol.className = `state-symbol ${nextState === 'failed' ? 'failed' : ''}`;
+        ui.stateSymbol.textContent = copy.symbol;
+        ui.stateHeading.textContent = copy.heading;
+        ui.stateDescription.textContent = copy.description;
+        ui.statePrimary.textContent = copy.primary;
+        ui.start.hidden = false;
+        ui.stop.hidden = true;
+        ui.restart.hidden = true;
+        ui.footerOwnership.textContent = nextState === 'failed' ? '应用实例已退出' : '无运行实例';
+      }
+
+      function beginStart(isRestart = false) {
+        const activeSequence = ++sequence;
+        setState('starting', { restart: isRestart });
+        addLog('desktop', isRestart ? '开始重启 DSH' : `工作目录 ${ui.workspacePath.textContent}`);
+        addLog('desktop', '启动 npx -y @deepseek-ai/dsh@0.1.0-rc.6 web');
+
+        window.setTimeout(() => {
+          if (sequence !== activeSequence || state !== 'starting') return;
+          addLog('dsh', 'loading profile: web');
+          document.getElementById('stateLog').textContent = '正在加载 Web profile';
+        }, 550);
+
+        window.setTimeout(() => {
+          if (sequence !== activeSequence || state !== 'starting') return;
+          addLog('dsh', 'server listening at http://127.0.0.1:3080');
+          addLog('desktop', '健康检查通过');
+          setState('running');
+          addLog('webview', '页面加载完成');
+          showToast(isRestart ? 'DSH 已重启' : 'DSH 已启动');
+        }, 1650);
+      }
+
+      function stopHarness() {
+        if (state !== 'running' && state !== 'starting') return;
+        ++sequence;
+        ui.statusDot.className = 'status-indicator starting';
+        ui.statusTitle.textContent = '正在停止 DSH';
+        ui.statusDetail.textContent = '正在结束子进程树';
+        ui.stop.disabled = true;
+        ui.restart.disabled = true;
+        addLog('desktop', '正在停止 DSH 进程树');
+        window.setTimeout(() => {
+          setState('stopped');
+          addLog('desktop', 'DSH 已停止，退出码 0');
+          showToast('DSH 已停止');
+        }, 700);
+      }
+
+      function restartHarness() {
+        if (state !== 'running') return;
+        ++sequence;
+        ui.statusDot.className = 'status-indicator starting';
+        ui.statusTitle.textContent = '正在停止旧实例';
+        ui.statusDetail.textContent = '准备重新启动';
+        ui.stop.disabled = true;
+        ui.restart.disabled = true;
+        addLog('desktop', '重启请求：先停止旧实例');
+        window.setTimeout(() => beginStart(true), 650);
+      }
+
+      ui.scenario.addEventListener('change', () => {
+        ++sequence;
+        setState(ui.scenario.value);
+        showToast(`已切换到“${ui.scenario.options[ui.scenario.selectedIndex].text}”场景`);
+      });
+
+      ui.start.addEventListener('click', () => beginStart(false));
+      ui.statePrimary.addEventListener('click', () => beginStart(false));
+      document.getElementById('stateLogs').addEventListener('click', () => ui.logDrawer.classList.add('visible'));
+      ui.stop.addEventListener('click', stopHarness);
+      ui.restart.addEventListener('click', restartHarness);
+
+      ui.reload.addEventListener('click', () => {
+        if (state !== 'running' && state !== 'external') return;
+        ui.workspaceArea.classList.add('refreshing');
+        addLog('webview', '重新加载页面');
+        window.setTimeout(() => {
+          ui.workspaceArea.classList.remove('refreshing');
+          showToast('页面已刷新，DSH 进程未重启');
+        }, 650);
+      });
+
+      document.getElementById('chooseDirectory').addEventListener('click', () => {
+        ui.customPath.value = ui.workspacePath.textContent;
+        ui.directoryBackdrop.classList.add('visible');
+        ui.customPath.focus();
+      });
+
+      document.querySelectorAll('.directory-option').forEach((button) => {
+        button.addEventListener('click', () => { ui.customPath.value = button.dataset.path; });
+      });
+
+      document.getElementById('confirmDirectory').addEventListener('click', () => {
+        const nextPath = ui.customPath.value.trim();
+        if (!nextPath) return;
+        const changed = nextPath !== ui.workspacePath.textContent;
+        ui.workspacePath.textContent = nextPath;
+        ui.workspacePath.title = nextPath;
+        ui.directoryBackdrop.classList.remove('visible');
+        addLog('desktop', `工作目录已修改为 ${nextPath}`);
+        showToast(changed && state === 'running' ? '工作目录已修改，重启后生效' : '工作目录已保存');
+      });
+
+      document.querySelectorAll('[data-close]').forEach((button) => {
+        button.addEventListener('click', () => document.getElementById(button.dataset.close).classList.remove('visible'));
+      });
+
+      document.getElementById('logsButton').addEventListener('click', () => {
+        ui.specDrawer.classList.remove('visible');
+        ui.logDrawer.classList.toggle('visible');
+      });
+      document.getElementById('closeLogs').addEventListener('click', () => ui.logDrawer.classList.remove('visible'));
+      document.getElementById('specButton').addEventListener('click', () => {
+        ui.logDrawer.classList.remove('visible');
+        ui.specDrawer.classList.toggle('visible');
+      });
+      document.getElementById('closeSpecs').addEventListener('click', () => ui.specDrawer.classList.remove('visible'));
+
+      document.querySelector('.send-button').addEventListener('click', () => showToast('原型仅演示桌面宿主交互'));
+      document.querySelector('.new-session').addEventListener('click', () => showToast('此区域由官方 DSH Web UI 提供'));
+
+      ui.directoryBackdrop.addEventListener('click', (event) => {
+        if (event.target === ui.directoryBackdrop) ui.directoryBackdrop.classList.remove('visible');
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        ui.directoryBackdrop.classList.remove('visible');
+        closePanels();
+      });
+
+      setState('running');
+    })();
+  </script>
+</body>
+</html>

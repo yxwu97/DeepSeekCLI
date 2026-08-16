@@ -1,0 +1,16 @@
+<UserControl x:Class="DeepSeekHarnessDesktop.Views.States.StoppedView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid>
+    <StackPanel Width="520" HorizontalAlignment="Center" VerticalAlignment="Center">
+      <TextBlock HorizontalAlignment="Center" FontSize="24" FontWeight="SemiBold" Text="{Binding StatusTitle}" />
+      <TextBlock Margin="0,12,0,24" HorizontalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" Text="{Binding StatusDetail}" />
+      <Button HorizontalAlignment="Center" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding StartCommand}" AutomationProperties.Name="启动 DSH">
+        <StackPanel Orientation="Horizontal">
+          <TextBlock Margin="0,0,8,0" VerticalAlignment="Center" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Text="&#xE768;" />
+          <TextBlock VerticalAlignment="Center" Text="启动 DSH" />
+        </StackPanel>
+      </Button>
+    </StackPanel>
+  </Grid>
+</UserControl>

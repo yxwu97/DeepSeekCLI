@@ -1,0 +1,29 @@
+namespace DeepSeekHarnessDesktop.Services;
+
+public enum HarnessStateEvent
+{
+    DshConfirmed,
+    ReachableUnknown,
+    ExternalRedirect,
+    InvalidUri,
+    InitializationAutoStart,
+    InitializationStopped,
+    Start,
+    PreflightDshConfirmed,
+    PreflightReachableUnknown,
+    PreflightExternalRedirect,
+    PreflightInvalidUri,
+    PreflightUnreachable,
+    HealthReady,
+    Stop,
+    Cancel,
+    ProcessExited,
+    Timeout,
+    Error,
+    Restart,
+    HealthLost,
+    OldProcessExited,
+    OldEndpointReleased,
+    Retry,
+    Dismiss,
+}

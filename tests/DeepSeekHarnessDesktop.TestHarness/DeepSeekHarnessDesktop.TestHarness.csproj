@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>DeepSeekHarnessDesktop.TestHarness</AssemblyName>
+    <RootNamespace>DeepSeekHarnessDesktop.TestHarness</RootNamespace>
+  </PropertyGroup>
+</Project>

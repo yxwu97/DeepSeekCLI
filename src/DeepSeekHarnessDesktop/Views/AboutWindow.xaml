@@ -1,0 +1,49 @@
+<Window x:Class="DeepSeekHarnessDesktop.Views.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="关于 DeepSeek Harness Desktop"
+        Width="520"
+        Height="390"
+        MinWidth="460"
+        MinHeight="340"
+        ResizeMode="CanResizeWithGrip"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource CanvasBrush}">
+  <Grid Margin="22">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+    <TextBlock FontSize="22" FontWeight="SemiBold" Text="DeepSeek Harness Desktop" />
+    <TextBlock Grid.Row="1" Margin="0,5,0,18" Foreground="{StaticResource MutedTextBrush}" Text="Windows x64 · MVP" />
+    <Grid Grid.Row="2">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="150" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+      <TextBlock Text="Desktop 版本" />
+      <TextBlock Grid.Column="1" Text="{Binding DesktopVersion}" />
+      <TextBlock Grid.Row="1" Text=".NET 版本" />
+      <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DotNetVersion}" />
+      <TextBlock Grid.Row="2" Text="WebView2 Runtime" />
+      <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding WebView2RuntimeVersion, TargetNullValue=未检测到}" TextWrapping="Wrap" />
+      <TextBlock Grid.Row="3" Text="Node.js" />
+      <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding NodeVersion, TargetNullValue=未检测到}" />
+      <TextBlock Grid.Row="4" Text="npx" />
+      <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding NpxPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding NpxPath}" />
+      <TextBlock Grid.Row="5" Text="DSH 固定版本" />
+      <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding DshVersion}" />
+    </Grid>
+    <Button Grid.Row="3" Width="86" HorizontalAlignment="Right" Content="关闭" IsCancel="True" AutomationProperties.Name="关闭关于窗口" />
+  </Grid>
+</Window>
