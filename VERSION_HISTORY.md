@@ -2,6 +2,13 @@
 
 本项目使用语义化版本号 `主版本.次版本.修订号`。每次修改系统代码、配置、构建流程或用户文档后，必须先递增 `Directory.Build.props` 中的 `AppVersion`，并在本文件顶部追加对应版本记录。普通兼容性修改默认递增修订号；新增兼容功能递增次版本号；不兼容变更递增主版本号。
 
+## [0.1.4] - 2026-08-16
+
+### 变更
+
+- 新增 GitHub 项目说明，明确本项目是 DeepSeek Harness 的 Windows 桌面外壳，提供接近 Codex CLI 与 Claude Code 的便捷使用体验。
+- 说明宿主采用 C#、.NET 8、WPF 和 WebView2，并继续复用官方 DeepSeek Harness Web UI 的业务能力。
+
 ## [0.1.3] - 2026-08-16
 
 ### 变更
