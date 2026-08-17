@@ -187,6 +187,22 @@ public sealed class HarnessLifecycleCoordinatorTests
     }
 
     [Fact]
+    public async Task NpxDnsFailureUsesActionableErrorCode()
+    {
+        var fixture = await CreateFixtureAsync(useNpx: true);
+        fixture.Health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        fixture.Health.BlockReadyUntilCancelled = true;
+        fixture.Process.ErrorDuringStartLine = "npm ERR! code ENOTFOUND";
+        fixture.Process.ExitDuringStartCode = 1;
+
+        await fixture.Coordinator.StartAsync(CancellationToken.None);
+
+        Assert.Equal(HarnessRuntimeState.Failed, fixture.Coordinator.Current.State);
+        Assert.Equal("DSH-E211", fixture.Coordinator.Current.Error?.Code);
+        await fixture.DisposeAsync();
+    }
+
+    [Fact]
     public async Task StoppedServiceAddressApplyPersistsWithoutStartingProcess()
     {
         var process = new FakeProcessManager();
@@ -309,17 +325,19 @@ public sealed class HarnessLifecycleCoordinatorTests
         await coordinator.DisposeAsync();
     }
 
-    private static async Task<Fixture> CreateFixtureAsync()
+    private static async Task<Fixture> CreateFixtureAsync(bool useNpx = false)
     {
-        var process = new FakeProcessManager();
+        var logs = new RecentLogBuffer();
+        var process = new FakeProcessManager(logs);
         var health = new FakeHealthMonitor();
         var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = false };
         var coordinator = new HarnessLifecycleCoordinator(
             new HarnessStateMachine(),
-            new FakeResolver(settings),
+            new FakeResolver(settings, useNpx),
             process,
             health,
-            settings);
+            settings,
+            recentLogs: logs);
         await coordinator.InitializeAsync(CancellationToken.None);
         return new Fixture(coordinator, process, health);
     }
@@ -347,12 +365,14 @@ public sealed class HarnessLifecycleCoordinatorTests
         public ValueTask DisposeAsync() => Coordinator.DisposeAsync();
     }
 
-    private sealed class FakeResolver(AppSettings settings) : IDshCommandResolver
+    private sealed class FakeResolver(AppSettings settings, bool useNpx = false) : IDshCommandResolver
     {
         public Task<DshLaunchOptions> ResolveAsync(AppSettings _, CancellationToken cancellationToken) =>
             Task.FromResult(new DshLaunchOptions
             {
-                ExecutablePath = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+                ExecutablePath = useNpx
+                    ? Path.Combine(Path.GetTempPath(), "npx.cmd")
+                    : Path.Combine(Environment.SystemDirectory, "cmd.exe"),
                 Arguments = [],
                 WorkingDirectory = settings.WorkspacePath,
                 FallbackUri = settings.ServiceUri,
@@ -360,7 +380,7 @@ public sealed class HarnessLifecycleCoordinatorTests
             });
     }
 
-    private sealed class FakeProcessManager : IHarnessProcessManager
+    private sealed class FakeProcessManager(IRecentLogBuffer? logs = null) : IHarnessProcessManager
     {
         private int _nextProcessId = 100;
         public event EventHandler<ProcessOutputEventArgs>? OutputReceived;
@@ -370,6 +390,7 @@ public sealed class HarnessLifecycleCoordinatorTests
         public int StartCount { get; private set; }
         public int StopCount { get; private set; }
         public int? ExitDuringStartCode { get; set; }
+        public string? ErrorDuringStartLine { get; set; }
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<HarnessProcessInfo> StartAsync(DshLaunchOptions options, CancellationToken cancellationToken)
@@ -380,6 +401,15 @@ public sealed class HarnessLifecycleCoordinatorTests
             Started.TrySetResult();
             OutputReceived?.Invoke(this, new ProcessOutputEventArgs(new ProcessOutputLine(
                 DateTimeOffset.UtcNow, ProcessOutputSource.StandardOutput, "ready http://127.0.0.1:43123/")));
+            if (ErrorDuringStartLine is { } errorText)
+            {
+                var errorLine = new ProcessOutputLine(
+                    DateTimeOffset.UtcNow,
+                    ProcessOutputSource.StandardError,
+                    errorText);
+                logs?.Add(errorLine);
+                OutputReceived?.Invoke(this, new ProcessOutputEventArgs(errorLine));
+            }
             if (ExitDuringStartCode is { } exitCode)
             {
                 Current = null;

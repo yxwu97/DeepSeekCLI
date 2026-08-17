@@ -20,25 +20,6 @@ public sealed record DependencyDiagnosticsResult
         Errors = errors;
     }
 
-    public DependencyDiagnosticsResult(
-        string desktopVersion,
-        string dotNetVersion,
-        string? webView2RuntimeVersion,
-        string? nodeVersion,
-        string? npxPath,
-        string dshVersion,
-        IReadOnlyList<HarnessError> errors)
-        : this(
-            desktopVersion,
-            dotNetVersion,
-            new DependencyCheck(webView2RuntimeVersion is null ? DependencyStatus.Missing : DependencyStatus.Available, Version: webView2RuntimeVersion),
-            new DependencyCheck(DependencyStatus.Missing, Version: dshVersion),
-            new DependencyCheck(nodeVersion is null ? DependencyStatus.Missing : DependencyStatus.Available, Version: nodeVersion),
-            new DependencyCheck(npxPath is null ? DependencyStatus.Missing : DependencyStatus.Available, Path: npxPath),
-            errors)
-    {
-    }
-
     public string DesktopVersion { get; }
     public string DotNetVersion { get; }
     public DependencyCheck WebView2 { get; }
@@ -50,7 +31,7 @@ public sealed record DependencyDiagnosticsResult
     public string? NodeVersion => Node.Version;
     public string? NpxPath => Npx.Path;
     public string? DshPath => GlobalDsh.Path;
-    public string DshVersion => Utilities.DshPackageMetadata.VerifiedVersion;
+    public string? DshVersion => GlobalDsh.Version;
     public bool CanLaunchDsh => GlobalDsh.Status == DependencyStatus.Available
         || (Node.Status == DependencyStatus.Available && Npx.Status == DependencyStatus.Available);
 }

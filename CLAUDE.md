@@ -70,7 +70,7 @@ DeepSeek Harness Desktop 是面向 Windows 10/11 x64 的原生桌面宿主。应
 - 工作目录通过 `ProcessStartInfo.WorkingDirectory` 传递，不能拼进 Shell 命令。
 - 参数优先使用 `ProcessStartInfo.ArgumentList`。`.cmd` 仅通过 `CmdCommandLineBuilder` 的受控路径执行，不允许接收未经验证的用户 Shell 文本。
 - 自定义启动模式只接受已存在的 `.exe` 或 `.com`；不要在未补齐威胁模型和测试前放宽到 `.cmd`、`.bat` 或任意命令行。
-- 不硬编码 npm `_npx` 缓存目录，不自动全局安装 Node.js/DSH，不静默升级当前固定的 DSH 包版本。
+- 不硬编码 npm `_npx` 缓存目录，不自动全局安装 Node.js/DSH；自动 npx 只允许受控的官方包名和参数模板，不持久化或静默切换版本配置。
 
 ### 5.4 服务身份与 WebView2
 

@@ -23,6 +23,21 @@ public sealed class PresentationServiceTests
         Assert.Equal("1004", lines[^1].Text);
     }
 
+    [Fact]
+    public void RecentLogBufferNormalizesRedactsAndLabelsDesktopLines()
+    {
+        var environment = new System.Collections.Hashtable { ["TEST_API_KEY"] = "visible-secret" };
+        var buffer = new RecentLogBuffer(new SensitiveDataRedactor(environment));
+
+        buffer.AddDesktop("\u001b[31mAuthorization: Bearer abc visible-secret\u001b[0m");
+
+        var line = Assert.Single(buffer.Snapshot());
+        Assert.Equal(ProcessOutputSource.Desktop, line.Source);
+        Assert.DoesNotContain("abc", line.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("visible-secret", line.Text, StringComparison.Ordinal);
+        Assert.Contains("[desktop]", line.DisplayText, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("http://127.0.0.1:3080/a", "http://127.0.0.1:3080/", true)]
     [InlineData("http://127.0.0.1:3081/", "http://127.0.0.1:3080/", false)]
@@ -88,10 +103,10 @@ public sealed class PresentationServiceTests
     private static DependencyDiagnosticsResult CreateDiagnostics() => new(
         "0.1.1",
         "8.0.0",
-        null,
-        null,
-        null,
-        "0.1.0-rc.6",
+        new DependencyCheck(DependencyStatus.Missing),
+        new DependencyCheck(DependencyStatus.Missing),
+        new DependencyCheck(DependencyStatus.Missing),
+        new DependencyCheck(DependencyStatus.Missing),
         []);
 
     private sealed class FakeCoordinator(HarnessStateSnapshot snapshot) : IHarnessLifecycleCoordinator

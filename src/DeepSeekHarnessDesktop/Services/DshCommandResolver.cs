@@ -8,11 +8,13 @@ namespace DeepSeekHarnessDesktop.Services;
 
 public sealed class DshCommandResolver : IDshCommandResolver
 {
-    private readonly Func<string, string?> _getEnvironmentVariable;
+    private readonly EnvironmentPathProvider _pathProvider;
 
     public DshCommandResolver(Func<string, string?>? getEnvironmentVariable = null)
     {
-        _getEnvironmentVariable = getEnvironmentVariable ?? Environment.GetEnvironmentVariable;
+        _pathProvider = getEnvironmentVariable is null
+            ? new EnvironmentPathProvider()
+            : new EnvironmentPathProvider((name, _) => getEnvironmentVariable(name));
     }
 
     public Task<DshLaunchOptions> ResolveAsync(AppSettings settings, CancellationToken cancellationToken)
@@ -61,7 +63,7 @@ public sealed class DshCommandResolver : IDshCommandResolver
         var arguments = new List<string>
         {
             "-y",
-            $"{DshPackageMetadata.PackageName}@{DshPackageMetadata.VerifiedVersion}",
+            DshPackageMetadata.PackageName,
             "web",
         };
         AppendPortIfNeeded(arguments, serviceUri);
@@ -83,7 +85,7 @@ public sealed class DshCommandResolver : IDshCommandResolver
 
     private string? FindOnPath(string fileName)
     {
-        var path = _getEnvironmentVariable("PATH");
+        var path = _pathProvider.GetSearchPath();
         if (string.IsNullOrWhiteSpace(path))
         {
             return null;

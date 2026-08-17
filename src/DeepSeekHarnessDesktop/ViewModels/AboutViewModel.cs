@@ -49,14 +49,13 @@ public sealed partial class AboutViewModel : ObservableObject
     public string? NodeVersion => Diagnostics.NodeVersion;
     public string? NpxPath => Diagnostics.NpxPath;
     public string? DshPath => Diagnostics.DshPath;
-    public string DshVersion => Diagnostics.DshVersion;
+    public string DshVersion => Diagnostics.DshVersion ?? "未知";
     public string LatestVersion => UpdateResult?.LatestVersion ?? "尚未检查";
     public string UpdateStatus => UpdateResult switch
     {
         null => "仅在点击“检查更新”时访问 npm 官方 registry。",
         { Succeeded: false } result => result.ErrorMessage ?? "检查更新失败。",
-        { IsUpdateAvailable: true } result => $"发现新版本 {result.LatestVersion}。当前仍使用已验证版本，不会自动切换。",
-        _ => "当前已验证版本不低于 npm latest。",
+        { Succeeded: true } result => $"npm 当前发布版本为 {result.LatestVersion}；npx 自动启动不锁定版本。",
     };
     public string CheckedAt => UpdateResult is null ? "-" : UpdateResult.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss");
 

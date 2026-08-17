@@ -65,7 +65,7 @@ public sealed class FeatureViewModelTests
     [Fact]
     public async Task AboutUpdateCheckOnlyUpdatesPresentationResult()
     {
-        var expected = new DshUpdateCheckResult("0.1.0-rc.6", "0.1.0", true, DateTimeOffset.Now);
+        var expected = new DshUpdateCheckResult("0.1.0", DateTimeOffset.Now);
         var viewModel = new AboutViewModel(
             new FakeDiagnosticsService(LaunchableDiagnostics()),
             new FakeReleaseService(expected),
@@ -75,7 +75,7 @@ public sealed class FeatureViewModelTests
         await viewModel.CheckUpdateCommand.ExecuteAsync(null);
 
         Assert.Same(expected, viewModel.UpdateResult);
-        Assert.Contains("不会自动切换", viewModel.UpdateStatus, StringComparison.Ordinal);
+        Assert.Contains("不锁定版本", viewModel.UpdateStatus, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -98,18 +98,90 @@ public sealed class FeatureViewModelTests
         Assert.False(main.IsWebViewVisible);
     }
 
+    [Fact]
+    public void InstallationGuideManualActionsUseFixedCommandAndValidatedWorkspace()
+    {
+        var clipboard = new FakeClipboard();
+        var terminal = new FakeTerminalLauncher();
+        var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), StartupTimeoutSeconds = 45 };
+        using var viewModel = CreateInstallationGuide(
+            new FakeCoordinator(Stopped()),
+            new FakeConfirmation(true),
+            settings,
+            clipboard,
+            terminal);
+
+        viewModel.CopyManualInstallCommand.Execute(null);
+        viewModel.OpenPowerShellCommand.Execute(null);
+
+        Assert.Equal("npx @deepseek-ai/dsh web", clipboard.Text);
+        Assert.Equal(settings.WorkspacePath, terminal.WorkingDirectory);
+        Assert.EndsWith("/ 00:45", viewModel.ElapsedText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InstallationGuideManualActionFailureRemainsRetryable()
+    {
+        var clipboard = new FakeClipboard { Failure = new InvalidOperationException("busy") };
+        using var viewModel = CreateInstallationGuide(
+            new FakeCoordinator(Stopped()),
+            new FakeConfirmation(true),
+            clipboard: clipboard);
+
+        viewModel.CopyManualInstallCommand.Execute(null);
+
+        Assert.Contains("失败", viewModel.StageMessage, StringComparison.Ordinal);
+        Assert.True(viewModel.CopyManualInstallCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task InstallationGuideSettlesStageAndTotalTimingOnStateTransitions()
+    {
+        var time = new ManualTimeProvider();
+        var coordinator = new FakeCoordinator(Stopped());
+        coordinator.OnStart = () =>
+        {
+            time.Advance(TimeSpan.FromSeconds(7));
+            coordinator.Set(Starting("正在创建 DSH 进程"));
+            time.Advance(TimeSpan.FromSeconds(3));
+            coordinator.Set(RunningOwned());
+        };
+        var logs = new RecentLogBuffer();
+        using var viewModel = CreateInstallationGuide(
+            coordinator,
+            new FakeConfirmation(true),
+            logBuffer: logs,
+            timeProvider: time);
+
+        await viewModel.DownloadAndStartCommand.ExecuteAsync(null);
+
+        var text = string.Join('\n', logs.Snapshot().Select(line => line.Text));
+        Assert.Contains("耗时 00:07", text, StringComparison.Ordinal);
+        Assert.Contains("总耗时 00:10", text, StringComparison.Ordinal);
+        Assert.False(viewModel.IsBusy);
+    }
+
     private static InstallationGuideViewModel CreateInstallationGuide(
         FakeCoordinator coordinator,
-        FakeConfirmation confirmation)
+        FakeConfirmation confirmation,
+        AppSettings? settings = null,
+        IClipboardService? clipboard = null,
+        ITerminalLauncher? terminalLauncher = null,
+        IRecentLogBuffer? logBuffer = null,
+        TimeProvider? timeProvider = null)
     {
         var diagnostics = LaunchableDiagnostics();
         return new InstallationGuideViewModel(
             new FakeDiagnosticsService(diagnostics),
             coordinator,
-            new RecentLogBuffer(),
+            logBuffer ?? new RecentLogBuffer(),
             new FakeLinkLauncher(),
             confirmation,
-            diagnostics);
+            diagnostics,
+            settings,
+            clipboard,
+            terminalLauncher,
+            timeProvider);
     }
 
     private static DependencyDiagnosticsResult LaunchableDiagnostics() => new(
@@ -134,14 +206,18 @@ public sealed class FeatureViewModelTests
         DateTimeOffset.Now,
         1);
 
+    private static HarnessStateSnapshot Starting(string message) => new(
+        HarnessRuntimeState.Starting, null, null, true, null, message, DateTimeOffset.Now, 2);
+
     private sealed class FakeCoordinator(HarnessStateSnapshot snapshot) : IHarnessLifecycleCoordinator
     {
         public HarnessStateSnapshot Current { get; private set; } = snapshot;
         public event EventHandler<HarnessStateSnapshot>? StateChanged;
         public int StartCount { get; private set; }
         public int ApplyCount { get; private set; }
+        public Action? OnStart { get; set; }
         public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public Task StartAsync(CancellationToken cancellationToken) { StartCount++; return Task.CompletedTask; }
+        public Task StartAsync(CancellationToken cancellationToken) { StartCount++; OnStart?.Invoke(); return Task.CompletedTask; }
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         public Task RestartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         public Task ApplyServiceUriAsync(Uri serviceUri, CancellationToken cancellationToken) { ApplyCount++; return Task.CompletedTask; }
@@ -188,6 +264,34 @@ public sealed class FeatureViewModelTests
         public bool ConfirmServiceRestart(Uri currentUri, Uri newUri) => result;
         public bool ConfirmDshDownload() => result;
         public bool ConfirmClearChatData() => result;
+    }
+
+    private sealed class FakeClipboard : IClipboardService
+    {
+        public string? Text { get; private set; }
+        public Exception? Failure { get; init; }
+        public void SetText(string text)
+        {
+            if (Failure is not null)
+            {
+                throw Failure;
+            }
+            Text = text;
+        }
+    }
+
+    private sealed class FakeTerminalLauncher : ITerminalLauncher
+    {
+        public string? WorkingDirectory { get; private set; }
+        public void OpenPowerShell(string workingDirectory) => WorkingDirectory = workingDirectory;
+    }
+
+    private sealed class ManualTimeProvider : TimeProvider
+    {
+        private long _timestamp;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => _timestamp;
+        public void Advance(TimeSpan elapsed) => _timestamp += elapsed.Ticks;
     }
 
     private sealed class FakeNavigation : ICodeWebViewService

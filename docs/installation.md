@@ -5,7 +5,7 @@
 - Windows 10 或 Windows 11 x64。
 - Microsoft Edge WebView2 Evergreen Runtime。
 - 以下启动路径至少满足一条：全局 `dsh.cmd` 可用；或 Node.js 与 `npx.cmd` 已加入当前用户或系统 PATH。
-- 首次通过 npx 启动固定版本 DSH 时，需要能够访问 npm registry；应用只写入当前用户 npm 缓存，不会全局安装或自动升级 DSH。
+- 首次通过 npx 启动 DSH 时，需要能够访问 npm registry；应用只写入当前用户 npm 缓存，不会全局安装 DSH。
 
 ## 使用
 
@@ -24,10 +24,21 @@ Chat 只内嵌精确的官方 HTTPS origin。其他安全 HTTP(S) 链接在系�
 
 未找到可用的全局 DSH，且 Node.js 或 npx 不可用时，主窗口会显示安装引导。也可在停止页或失败页手动打开引导。
 
-- “打开 Node.js 下载页”只打开 Node.js 官方网站，不会下载或运行安装程序。
-- “重新检查”会重新探测 WebView2、全局 DSH、Node.js 和 npx。
-- “下载并启动”会先要求确认，然后复用应用现有的 Owned DSH 启动链路运行固定版本 `@deepseek-ai/dsh@0.1.0-rc.6`。
+- “Node.js 下载”只打开 Node.js 官方网站，不会下载或运行安装程序。
+- “重新检查”会重新读取系统、用户和进程 PATH，再探测 WebView2、全局 DSH、Node.js 和 npx。
+- “准备并启动”会先要求确认，然后复用应用现有的 Owned DSH 启动链路运行 `npx -y @deepseek-ai/dsh web`。包名和参数固定，但不锁定 DSH 版本。
 - 准备和启动期间可以取消；应用会通过 Windows Job Object 回收本次创建的整个进程树。
+- 引导会显示当前阶段、阶段耗时、总耗时和最长等待时间；新配置默认最长等待 5 分钟。
+- 日志实时显示 `[时间] [desktop/stdout/stderr] 内容`，最多保留 1000 行，并支持复制已经规范化和脱敏的日志。
+
+自动准备失败时，可展开“手动安装与启动”并按以下步骤操作：
+
+1. 点击“Node.js 下载”，安装 Node.js LTS x64；安装后重新打开 PowerShell。
+2. 执行 `node --version` 和 `npx --version`，确认两个命令均可用；返回应用点击“重新检查”，仍无法识别时重启应用。
+3. 在应用所选工作目录打开 PowerShell，执行 `npx @deepseek-ai/dsh web` 并保持终端运行。
+4. 等待终端显示本机服务地址，再返回应用连接默认地址 `http://127.0.0.1:3080/`。
+
+手动启动的进程属于外部实例。应用只连接和刷新，不会停止或重启它。引导提供复制命令、在工作目录打开 PowerShell、DSH 官方文档和 npm 包页面的快捷入口；打开 PowerShell 不会自动执行命令。
 
 ## 本机服务地址
 
@@ -41,9 +52,7 @@ Chat 只内嵌精确的官方 HTTPS origin。其他安全 HTTP(S) 链接在系�
 
 ## 手动检查更新
 
-“关于”窗口可手动查询 npm 官方 registry 的 `latest` 版本，并与当前验证版本比较。应用启动时不会后台检查，检查结果也不会下载、安装或切换 DSH 版本。
-
-Developer Preview 的新版本可能与当前宿主不兼容。即使发现新版，应用仍继续使用固定验证版本 `0.1.0-rc.6`。
+“关于”窗口可手动查询 npm 官方 registry 的 `latest` 版本。应用启动时不会后台检查，检查结果不会下载、安装、持久化或改变启动参数。自动 npx 路径不固定版本，由 npm 在每次需要解析包时选择当前版本；全局 `dsh.cmd` 仍优先使用。
 
 ## 本地数据
 
@@ -65,6 +74,10 @@ Chat 工具栏的清除按钮会先要求确认，然后仅对 Chat profile 调�
 - `DSH-E205`：目标地址被无法确认身份的其他服务占用；应用不会加载或结束该服务。
 - `DSH-E207`：当前正在启动、停止或重启；等待操作完成后再应用地址。
 - `DSH-E208`：设置中的 DSH 地址不可达；启动服务或改用其他本机地址。
+- `DSH-E211`：npm DNS 查询失败；检查网络、DNS 和代理设置。
+- `DSH-E212`：npm TLS 或证书验证失败；检查系统时间、代理和企业证书策略。
+- `DSH-E213`：npm registry 拒绝请求或未找到包；检查 npm registry 配置和访问策略。
+- `DSH-E214`：npm 缓存或工作目录权限不足；检查当前用户对相关目录的权限。
 - `WEB-E301`：安装或修复 Microsoft Edge WebView2 Evergreen Runtime。
 - `WEB-E311`：Chat WebView2/profile 初始化失败；可重试，持续失败时修复 Runtime。
 - `WEB-E312`：Chat 网络或 DNS 失败；检查网络后重试。
@@ -75,4 +88,4 @@ Chat 工具栏的清除按钮会先要求确认，然后仅对 Chat profile 调�
 - `WEB-E318`：系统浏览器无法打开外部链接。
 - `CFG-E401`：主配置与备份均不可用，应用已使用默认设置启动。
 
-“关于”窗口会显示 Desktop、.NET、WebView2、Node.js、全局 DSH 路径、固定 DSH 版本和最近一次手动更新检查结果。
+“关于”窗口会显示 Desktop、.NET、WebView2、Node.js、全局 DSH 路径和版本，以及最近一次 npm `latest` 手动查询结果。

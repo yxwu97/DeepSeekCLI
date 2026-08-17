@@ -85,6 +85,7 @@ public sealed class HarnessProcessManager : IHarnessProcessManager
                     _current = info;
                     _exitSignal = new TaskCompletionSource<ProcessExitedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
                 }
+                _recentLogs?.AddDesktop($"DSH 进程已创建，PID {process.Id}。");
 
                 if (process.HasExited)
                 {
@@ -223,6 +224,15 @@ public sealed class HarnessProcessManager : IHarnessProcessManager
 
     private void CompleteExit(Process process)
     {
+        try
+        {
+            process.WaitForExit();
+        }
+        catch (InvalidOperationException)
+        {
+            // The process may already have been disposed by a concurrent completion path.
+        }
+
         WindowsJobObject? job;
         HarnessProcessInfo? current;
         TaskCompletionSource<ProcessExitedEventArgs>? exitSignal;
@@ -248,6 +258,7 @@ public sealed class HarnessProcessManager : IHarnessProcessManager
         process.Dispose();
         if (current is not null)
         {
+            _recentLogs?.AddDesktop($"DSH 进程 {current.ProcessId} 已退出，退出码 {exitCode}。");
             var args = new ProcessExitedEventArgs(current.ProcessId, exitCode);
             exitSignal?.TrySetResult(args);
             ProcessExited?.Invoke(this, args);

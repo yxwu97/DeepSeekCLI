@@ -151,7 +151,13 @@ public sealed class ChatModeTests
         3);
 
     private static DependencyDiagnosticsResult Diagnostics() => new(
-        "0.3.0", "8.0.0", null, null, null, "0.1.0-rc.6", []);
+        "0.4.0",
+        "8.0.0",
+        new DependencyCheck(DependencyStatus.Missing),
+        new DependencyCheck(DependencyStatus.Missing),
+        new DependencyCheck(DependencyStatus.Missing),
+        new DependencyCheck(DependencyStatus.Missing),
+        []);
 
     private sealed class FakeChatWebViewService : IChatWebViewService
     {

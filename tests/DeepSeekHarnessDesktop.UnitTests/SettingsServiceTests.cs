@@ -15,6 +15,7 @@ public sealed class SettingsServiceTests
 
         Assert.Equal(SettingsService.CurrentSchemaVersion, settings.SchemaVersion);
         Assert.Equal(new Uri("http://127.0.0.1:3080/"), settings.ServiceUri);
+        Assert.Equal(300, settings.StartupTimeoutSeconds);
         Assert.True(Path.IsPathFullyQualified(settings.WorkspacePath));
     }
 
@@ -73,6 +74,61 @@ public sealed class SettingsServiceTests
     }
 
     [Theory]
+    [InlineData(60, 300)]
+    [InlineData(45, 45)]
+    [InlineData(300, 300)]
+    public async Task VersionOneSettingsMigrateBeforeValidation(int sourceTimeout, int expectedTimeout)
+    {
+        using var directory = new TemporaryDirectory();
+        var workspace = Path.Combine(directory.Path, "workspace");
+        Directory.CreateDirectory(workspace);
+        var json = $$"""
+            {
+              "schemaVersion": 1,
+              "workspacePath": "{{JsonEscape(workspace)}}",
+              "serviceUri": "http://127.0.0.1:3080/",
+              "autoStart": false,
+              "startupTimeoutSeconds": {{sourceTimeout}}
+            }
+            """;
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "settings.json"), json);
+        using var service = new SettingsService(directory.Path);
+
+        var settings = await service.LoadAsync(CancellationToken.None);
+
+        Assert.Equal(SettingsService.CurrentSchemaVersion, settings.SchemaVersion);
+        Assert.Equal(expectedTimeout, settings.StartupTimeoutSeconds);
+        Assert.Equal(workspace, settings.WorkspacePath);
+    }
+
+    [Fact]
+    public async Task CorruptPrimaryRecoversAndMigratesVersionOneBackup()
+    {
+        using var directory = new TemporaryDirectory();
+        var workspace = Path.Combine(directory.Path, "backup-workspace");
+        Directory.CreateDirectory(workspace);
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "settings.json"), "{broken");
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "settings.json.bak"), $$"""
+            {
+              "schemaVersion": 1,
+              "workspacePath": "{{JsonEscape(workspace)}}",
+              "serviceUri": "http://127.0.0.1:3080/",
+              "autoStart": false,
+              "startupTimeoutSeconds": 60
+            }
+            """);
+        using var service = new SettingsService(directory.Path);
+
+        var settings = await service.LoadAsync(CancellationToken.None);
+        var repaired = await File.ReadAllTextAsync(Path.Combine(directory.Path, "settings.json"));
+
+        Assert.Equal(2, settings.SchemaVersion);
+        Assert.Equal(300, settings.StartupTimeoutSeconds);
+        Assert.Equal(workspace, settings.WorkspacePath);
+        Assert.Contains("\"schemaVersion\": 2", repaired, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(4, 1.0, 1280, 820)]
     [InlineData(60, 0.4, 1280, 820)]
     [InlineData(60, 1.0, 819, 820)]
@@ -112,6 +168,8 @@ public sealed class SettingsServiceTests
         WorkspacePath = Path.Combine(Path.GetTempPath(), leaf),
         AutoStart = false,
     };
+
+    private static string JsonEscape(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal);
 
     private sealed class TemporaryDirectory : IDisposable
     {

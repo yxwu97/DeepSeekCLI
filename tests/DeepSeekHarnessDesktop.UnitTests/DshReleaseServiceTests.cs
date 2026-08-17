@@ -8,10 +8,10 @@ namespace DeepSeekHarnessDesktop.UnitTests;
 public sealed class DshReleaseServiceTests
 {
     [Theory]
-    [InlineData("0.1.0", true)]
-    [InlineData("0.1.0-rc.6", false)]
-    [InlineData("0.1.0-rc.5", false)]
-    public async Task ComparesPrereleaseVersions(string latest, bool expectedUpdate)
+    [InlineData("0.1.0")]
+    [InlineData("0.1.0-rc.6")]
+    [InlineData("0.2.0-beta.1")]
+    public async Task ReturnsValidLatestVersionWithoutComparingPinnedVersion(string latest)
     {
         using var client = new HttpClient(new StubHandler(_ => Json($"{{\"version\":\"{latest}\"}}")));
         using var service = new DshReleaseService(client);
@@ -19,7 +19,6 @@ public sealed class DshReleaseServiceTests
         var result = await service.CheckLatestAsync(CancellationToken.None);
 
         Assert.True(result.Succeeded);
-        Assert.Equal(expectedUpdate, result.IsUpdateAvailable);
         Assert.Equal(latest, result.LatestVersion);
     }
 

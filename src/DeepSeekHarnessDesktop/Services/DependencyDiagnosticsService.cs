@@ -8,7 +8,7 @@ namespace DeepSeekHarnessDesktop.Services;
 
 public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
 {
-    private readonly Func<string, string?> _getEnvironmentVariable;
+    private readonly EnvironmentPathProvider _pathProvider;
     private readonly Func<string?> _getWebView2Version;
     private readonly Func<string, CancellationToken, Task<string?>> _getExecutableVersion;
 
@@ -17,7 +17,9 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
         Func<string?>? getWebView2Version = null,
         Func<string, CancellationToken, Task<string?>>? getExecutableVersion = null)
     {
-        _getEnvironmentVariable = getEnvironmentVariable ?? Environment.GetEnvironmentVariable;
+        _pathProvider = getEnvironmentVariable is null
+            ? new EnvironmentPathProvider()
+            : new EnvironmentPathProvider((name, _) => getEnvironmentVariable(name));
         _getWebView2Version = getWebView2Version ?? (() => CoreWebView2Environment.GetAvailableBrowserVersionString());
         _getExecutableVersion = getExecutableVersion ?? GetExecutableVersionAsync;
     }
@@ -26,7 +28,7 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
     {
         var errors = new List<HarnessError>();
         var webView = DiagnoseWebView(errors);
-        var path = _getEnvironmentVariable("PATH");
+        var path = _pathProvider.GetSearchPath();
         var dshPath = FindOnPath("dsh.cmd", path);
         var nodePath = FindOnPath("node.exe", path);
         var npxPath = FindOnPath("npx.cmd", path);

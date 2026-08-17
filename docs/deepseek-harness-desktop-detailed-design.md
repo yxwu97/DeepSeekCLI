@@ -4,13 +4,13 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | 1.2 |
+| 文档版本 | 1.3 |
 | 更新日期 | 2026-08-17 |
-| 目标版本 | Desktop 0.3.0 |
+| 目标版本 | Desktop 0.4.0 |
 | 目标平台 | Windows 10/11 x64 |
 | 桌面框架 | .NET 8 / WPF |
 | 网页宿主 | Microsoft Edge WebView2 |
-| 默认 DSH 命令 | `npx -y @deepseek-ai/dsh@0.1.0-rc.6 web` |
+| 默认 DSH 命令 | `npx -y @deepseek-ai/dsh web` |
 | 默认服务地址 | `http://127.0.0.1:3080/` |
 
 相关文档：
@@ -236,7 +236,7 @@ DeepSeekCLI/
 ### 7.2 运行时依赖
 
 - Node.js 和 npm/npx
-- 本机已安装或可由 npx 下载到当前用户缓存的 `@deepseek-ai/dsh@0.1.0-rc.6`
+- 本机已安装或可由 npx 下载到当前用户缓存的 `@deepseek-ai/dsh`
 - Microsoft Edge WebView2 Evergreen Runtime
 
 应用不安装 Node.js、WebView2 Runtime 或全局 npm 包。默认启动使用 `npx -y`；本机无可用 DSH 缓存时，npx 可以访问配置的 npm registry 并写入当前用户缓存，UI 必须持续显示下载日志，失败时保留可诊断输出。
@@ -330,7 +330,7 @@ public interface IDshCommandResolver
 
 1. 若 `Launch.Mode` 为 `Custom`，校验并使用用户配置的可执行文件和参数。
 2. 在 PATH 中查找 `dsh.cmd`，命令参数为 `web`。
-3. 在 PATH 中查找 `npx.cmd`，命令参数为 `-y @deepseek-ai/dsh@0.1.0-rc.6 web`。
+3. 在刷新后的 Machine/User/Process PATH 中查找 `npx.cmd`，命令参数为 `-y @deepseek-ai/dsh web`。
 4. 均未找到时返回 `DSH-E101`。
 
 不得扫描或硬编码 npm `_npx` 缓存哈希目录。
@@ -470,7 +470,7 @@ Windows 的 npm 命令通常是 `.cmd` 包装器。为了重定向 stdout/stderr
 
 ```text
 Executable: %SystemRoot%\System32\cmd.exe
-Arguments:  /d /v:off /s /c ""<absolute-path-to-npx.cmd>" -y @deepseek-ai/dsh@0.1.0-rc.6 web"
+Arguments:  /d /v:off /s /c ""<absolute-path-to-npx.cmd>" -y @deepseek-ai/dsh web"
 WorkingDirectory: <selected workspace>
 UseShellExecute: false
 CreateNoWindow: true
@@ -485,7 +485,7 @@ RedirectStandardInput: false
 - 默认参数由程序常量生成。
 - `-y` 只预先回答 npx 的安装确认；npx 仍可联网并写入当前用户 npm 缓存，不代表全局安装或升级。
 - 工作目录只设置到 `WorkingDirectory`，不进入命令字符串。
-- 默认 `.cmd` 模式只允许程序内置的 `web` 或 `-y @deepseek-ai/dsh@0.1.0-rc.6 web` 参数，不接受用户文本进入 `cmd.exe` 命令串。
+- 默认 `.cmd` 模式只允许程序内置的 `web` 或 `-y @deepseek-ai/dsh web` 参数，不接受用户文本进入 `cmd.exe` 命令串。
 - `cmd.exe` 固定取 `Environment.SystemDirectory` 下的系统文件，不信任可被用户覆盖的 `%COMSPEC%`；脚本绝对路径不得包含 `%`、CR、LF 或 NUL，`/v:off` 禁止延迟环境变量展开。
 - 命令构造分两层测试：外层按 Windows `CommandLineToArgvW` 对称规则序列化 `cmd.exe` 参数；内层按 `cmd.exe /s /c` 规则生成唯一命令字符串，并用带空格、`&`、括号和 Unicode 的脚本路径做往返测试。
 - 自定义模式 MVP 只接受 `.exe` 或 `.com` 原生可执行文件，参数逐项加入 `ProcessStartInfo.ArgumentList`，不经 Shell；自定义 `.cmd`/`.bat` 暂不支持。
@@ -592,7 +592,7 @@ https?://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?/?[^\s]*
 | 单次请求超时 | 2 秒 |
 | 首次探测间隔 | 300 毫秒 |
 | 后续探测间隔 | 500 毫秒 |
-| 总启动超时 | 60 秒 |
+| 总启动超时 | 300 秒 |
 | 请求方法 | `GET /` |
 | 最大响应读取 | 256 KiB |
 | 最大重定向次数 | 5 次 |
@@ -606,7 +606,7 @@ https?://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?/?[^\s]*
 4. 超过 5 跳、循环重定向或非法 `Location` 返回 `InvalidUri`/`DSH-E202`。
 5. 最终 URI 作为已验证 Service URI，后续导航和同源规则使用该 URI。
 
-DSH 身份校验不以普通 2xx/4xx 为依据。对当前基线 `@deepseek-ai/dsh@0.1.0-rc.6`，最终 HTML 必须同时包含大小写精确的 `<title>DeepSeek Harness</title>` 和运行时注入标记 `window.__DSH_BOOT__`；特征集合按已验证 DSH 版本集中维护。收到 HTTP 响应但特征不匹配时返回 `ReachableUnknown`，启动前映射为 `DSH-E205`。
+DSH 身份校验不以普通 2xx/4xx 为依据。最终 HTML 必须同时包含大小写精确的 `<title>DeepSeek Harness</title>` 和运行时注入标记 `window.__DSH_BOOT__`；无版本 npx 路径同样不得放宽身份检查。收到 HTTP 响应但特征不匹配时返回 `ReachableUnknown`，启动前映射为 `DSH-E205`。
 
 `HttpClient` 为单例；每次探测创建并在 `finally`/`using` 中释放 linked `CancellationTokenSource`。该 CTS 不跨探测复用，避免取消状态泄漏；以 5 秒量级的轮询频率不会造成有意义的资源压力。
 
@@ -968,11 +968,11 @@ Chat 不调用生命周期协调器，使用独立快照和错误号段：`WEB-E
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "workspacePath": "E:\\DeepSeekCLI",
   "serviceUri": "http://127.0.0.1:3080/",
   "autoStart": true,
-  "startupTimeoutSeconds": 60,
+  "startupTimeoutSeconds": 300,
   "launch": {
     "mode": "Auto",
     "executablePath": null,
@@ -1015,7 +1015,7 @@ Chat 不调用生命周期协调器，使用独立快照和错误号段：`WEB-E
 
 ### 19.5 迁移
 
-`SettingsService` 按 `schemaVersion` 顺序迁移。禁止跨版本直接覆盖未知字段；迁移失败时保留原始配置文件并使用默认值启动。
+`SettingsService` 使用“读取 JSON → 按 schema 迁移 → 反序列化 → 验证”的统一管线，主配置与 `.bak` 恢复路径完全复用。v1 无法区分历史默认 60 与用户显式设置 60，因此统一迁移为 300；其他 5-300 范围内的值保留。禁止跨版本直接覆盖未知字段；迁移失败时保留原始配置文件并使用默认值启动。
 
 ## 20. 日志详细设计
 
@@ -1081,6 +1081,10 @@ public sealed record HarnessError(
 | `DSH-E204` | 服务重定向到不允许的地址 | 否 |
 | `DSH-E205` | 端口被其他服务占用 | 是（释放端口或修改地址后） |
 | `DSH-E206` | 无法停止 DSH 进程树 | 是 |
+| `DSH-E211` | 无法连接 npm registry，请检查 DNS 和网络 | 是 |
+| `DSH-E212` | npm 安全连接失败，请检查系统时间、代理和证书 | 是 |
+| `DSH-E213` | npm registry 拒绝或未找到 DSH 包 | 是 |
+| `DSH-E214` | npm 缓存或目录权限不足 | 是 |
 | `WEB-E301` | WebView2 Runtime 不可用 | 否 |
 | `WEB-E302` | 页面加载失败 | 是 |
 | `WEB-E303` | WebView2 渲染进程异常 | 是 |
@@ -1394,7 +1398,7 @@ MVP 必须同时满足：
 
 ### 30.1 单一事实来源
 
-`DshPackageMetadata` 统一提供包名 `@deepseek-ai/dsh`、验证版本 `0.1.0-rc.6`、默认地址 `http://127.0.0.1:3080/` 和 npm `latest` endpoint。解析器、诊断、命令构造、设置、关于窗口和更新检查均引用该类型。
+`DshPackageMetadata` 统一提供包名 `@deepseek-ai/dsh`、默认地址 `http://127.0.0.1:3080/` 和 npm `latest` endpoint，不维护启动版本。解析器、诊断、命令构造、设置、关于窗口和更新检查均引用该类型。
 
 `ServiceUriValidator` 对配置 origin 执行结构化校验和规范化：仅允许绝对 loopback HTTP(S)，拒绝用户信息、query、fragment 与 0/越界端口，路径归一化为 `/`。健康探测允许在同 origin 内跟随路径重定向，但提交到状态机、设置和 WebView2 的地址仍规范化为 origin。
 
@@ -1419,7 +1423,14 @@ MVP 必须同时满足：
 
 `DshReleaseService` 使用独立 `HttpClient`，关闭自动重定向与 Cookie，只请求固定 npm 官方 endpoint。请求最长 15 秒，响应体最多 64 KiB，只接受可由 `NuGet.Versioning` 解析的 `version` 字段。HTTP、超时、过大响应和 JSON 错误转换为无副作用的 `DshUpdateCheckResult`；调用方取消继续传播。
 
-`AboutViewModel` 支持重新诊断、手动检查、取消和固定官方资料入口。检查结果不写入 `AppSettings`，不调用生命周期协调器，不修改启动命令。即使 npm `latest` 更新，运行版本仍保持验证版本。
+`AboutViewModel` 支持重新诊断、手动检查、取消和固定官方资料入口。检查结果不写入 `AppSettings`，不调用生命周期协调器，不修改启动命令。npm `latest` 仅作信息展示，自动 npx 继续使用无版本受控模板。
+
+## 31. Desktop 0.4.0 安装可观测性增量
+
+- `RecentLogBuffer` 是安装 UI 的单一日志来源，容量统一为 1000 行；desktop/stdout/stderr 在入队前规范化、限长和脱敏，宿主摘要使用 Event ID 1200 写入滚动文件。
+- `InstallationGuideViewModel` 通过 `TimeProvider` 记录总起点和阶段起点。阶段切换结算上一阶段并重置阶段计时；成功、失败、取消和释放均停止周期计时器。
+- `IClipboardService` 只复制固定手动命令或已脱敏日志；`ITerminalLauncher` 只在已存在的绝对工作目录打开可见 PowerShell，不自动执行命令。
+- 进程退出前先排空异步 stdout/stderr。npx 当前启动周期的 stderr 只按稳定签名分类：DNS `DSH-E211`、TLS `DSH-E212`、registry `DSH-E213`、权限 `DSH-E214`；未知错误仍为 `DSH-E201`。
 
 ### 30.5 资源与 UI
 

@@ -43,7 +43,7 @@
       <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding NodeVersion, TargetNullValue=未检测到}" />
       <TextBlock Grid.Row="4" Text="npx" />
       <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding NpxPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding NpxPath}" />
-      <TextBlock Grid.Row="5" Text="DSH 固定版本" />
+      <TextBlock Grid.Row="5" Text="全局 DSH 版本" />
       <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding DshVersion}" />
       <TextBlock Grid.Row="6" Text="全局 DSH" />
       <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding DshPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DshPath}" />

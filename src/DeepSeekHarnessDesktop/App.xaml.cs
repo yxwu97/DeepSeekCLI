@@ -27,7 +27,8 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
 
-        _logService = new LogService();
+        var redactor = new SensitiveDataRedactor();
+        _logService = new LogService(redactor: redactor);
         _logger = _logService.CreateLogger(nameof(App));
         _logger.LogInformation(new EventId(1000), "DeepSeek Harness Desktop is starting.");
         DispatcherUnhandledException += OnDispatcherUnhandledException;
@@ -52,6 +53,7 @@ public partial class App : System.Windows.Application
         }
         _services = new ServiceCollection()
             .AddSingleton(_settings)
+            .AddSingleton(redactor)
             .AddSingleton(diagnostics)
             .AddSingleton<IDependencyDiagnosticsService>(diagnosticsService)
             .AddSingleton(_settingsService)
@@ -61,9 +63,13 @@ public partial class App : System.Windows.Application
             .AddSingleton<AccountViewModel>()
             .AddSingleton<IDshReleaseService>(_ => new DshReleaseService())
             .AddSingleton<IExternalLinkLauncher, ExternalLinkLauncher>()
+            .AddSingleton<IClipboardService, SystemClipboardService>()
+            .AddSingleton<ITerminalLauncher, PowerShellTerminalLauncher>()
             .AddSingleton<IUserConfirmationService, UserConfirmationService>()
+            .AddSingleton(TimeProvider.System)
             .AddSingleton<TrayIconService>()
             .AddSingleton<HarnessStateMachine>()
+            .AddSingleton(_logService.CreateLogger<RecentLogBuffer>())
             .AddSingleton<IRecentLogBuffer, RecentLogBuffer>()
             .AddSingleton<IWorkspacePicker, WorkspacePicker>()
             .AddSingleton<IDshCommandResolver, DshCommandResolver>()

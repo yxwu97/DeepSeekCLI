@@ -43,13 +43,13 @@
 - Web UI 内仍需选择工作区，选择前会话输入不可用。
 - DSH 当前处于 Developer Preview，后续版本可能存在不兼容变更。
 
-桌面宿主将官方命令收紧为 `npx -y @deepseek-ai/dsh@0.1.0-rc.6 web`：`-y` 避免无控制台时卡在首次安装确认，显式版本避免启动时隐式升级。
+桌面宿主将官方命令收紧为 `npx -y @deepseek-ai/dsh web`：`-y` 避免无控制台时卡在首次安装确认，包名和参数保持受控，但不锁定 DSH 版本。
 
 当前开发机环境：
 
 - Node.js：`v24.15.0`
 - npm：`11.12.1`
-- 已缓存 DSH：`@deepseek-ai/dsh@0.1.0-rc.6`
+- 已缓存 DSH：版本随 npm 缓存和当前解析结果变化
 - `dsh` 当前不在全局 PATH 中
 - .NET SDK：已安装 9.0 和 10.0
 - .NET 8 Windows Desktop Runtime：已安装
@@ -58,7 +58,7 @@
 因此，首版默认使用以下命令启动：
 
 ```powershell
-npx -y @deepseek-ai/dsh@0.1.0-rc.6 web
+npx -y @deepseek-ai/dsh web
 ```
 
 不得在程序中硬编码 npm 缓存目录。npm 的 `_npx` 缓存哈希属于内部实现，升级或清理缓存后可能变化。
@@ -205,7 +205,7 @@ Failed
 
 1. 若设置中配置了自定义命令，则使用自定义命令。
 2. 若 PATH 中存在 `dsh.cmd`，执行 `dsh.cmd web`。
-3. 否则执行 `npx.cmd -y @deepseek-ai/dsh@0.1.0-rc.6 web`。
+3. 否则执行 `npx.cmd -y @deepseek-ai/dsh web`。
 4. 均不可用时显示 Node.js/npm 未安装或 PATH 配置错误。
 
 Windows 下 `.cmd` 启动脚本需要通过受控的 `cmd.exe /d /v:off /s /c` 子进程执行，以便重定向输出。默认 `.cmd` 只接收程序内置参数；工作目录通过 `ProcessStartInfo.WorkingDirectory` 设置，不拼接到 Shell 命令中。自定义模式首版只接受 `.exe`/`.com`，参数逐项加入 `ProcessStartInfo.ArgumentList`，不支持自定义 `.cmd`/`.bat`。
@@ -217,7 +217,7 @@ Windows 下 `.cmd` 启动脚本需要通过受控的 `cmd.exe /d /v:off /s /c` �
 - 默认地址：`http://127.0.0.1:3080/`
 - 首次探测间隔：300 毫秒
 - 稳定探测间隔：500 毫秒
-- 默认启动超时：60 秒
+- 默认启动超时：300 秒；单次 HTTP 探测仍保持 2 秒短超时
 - 最终响应必须为 2xx HTML，并同时包含 `<title>DeepSeek Harness</title>` 与 `window.__DSH_BOOT__` 才确认是 DSH
 - 仅端口打开不足以判定页面可用
 - 输出中出现其他本机 HTTP URL 时，应优先使用输出地址
@@ -376,7 +376,7 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 ### 阶段一：最小闭环
 
 - 创建 WPF 项目和 WebView2
-- 启动 `npx -y @deepseek-ai/dsh@0.1.0-rc.6 web`
+- 启动 `npx -y @deepseek-ai/dsh web`
 - 捕获日志
 - 探测 `127.0.0.1:3080`
 - 服务就绪后加载页面
@@ -470,7 +470,7 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 
 依赖诊断通过 `IDependencyDiagnosticsService` 表达 WebView2、全局 `dsh.cmd`、Node.js 和 `npx.cmd` 的 `Available`、`Missing` 或 `Unusable` 状态。只要全局 DSH 可用，Node.js/npx 缺失不构成 `DSH-E101`；否则必须同时具备 Node.js 与 npx。
 
-安装引导是主窗口显示模式，不是新的 `HarnessRuntimeState`。用户确认“下载并启动”后仍调用 `IHarnessLifecycleCoordinator.StartAsync`，因此 npx 下载、取消、进程输出、Job Object 和 generation 防护都使用原有 Owned 生命周期。引导最多显示最近 200 行已经规范化的进程日志。
+安装引导是主窗口显示模式，不是新的 `HarnessRuntimeState`。用户确认“准备并启动”后仍调用 `IHarnessLifecycleCoordinator.StartAsync`，因此 npx 下载、取消、进程输出、Job Object 和 generation 防护都使用原有 Owned 生命周期。引导与共享缓冲统一保留最近 1000 行已规范化、限长并脱敏的 desktop/stdout/stderr 日志，同时显示独立的阶段耗时和总耗时。
 
 ### 18.2 服务 origin 与端口
 
@@ -478,16 +478,23 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 
 ```text
 dsh.cmd web --port <1-65535>
-npx.cmd -y @deepseek-ai/dsh@0.1.0-rc.6 web --port <1-65535>
+npx.cmd -y @deepseek-ai/dsh web --port <1-65535>
 ```
 
-`.cmd` 构造器不接受用户参数列表或 Shell 文本。固定版本已在 2026-08-17 真实验证 `web --port` 与 `--profile web --port` 等价，本项目沿用较短的 `web --port`。
+`.cmd` 构造器不接受用户参数列表或 Shell 文本。包名、`web` 和可选数字端口均由程序生成；取消版本锁定不允许用户替换包名、dist-tag 或附加参数。
 
 地址应用由生命周期协调器串行处理：停止/失败状态只原子保存；外部实例先确认新地址身份再替换 watcher，失败则恢复原 watcher；Owned 实例由 UI 确认后保存，并严格执行停止旧进程、两次确认旧端点不可达、启动新进程。启动、停止、重启或初始化期间返回 `DSH-E207`。
 
 ### 18.3 手动更新检查
 
-`DshReleaseService` 只访问固定 npm 官方 `latest` endpoint，禁用自动重定向和 Cookie，超时 15 秒，响应上限 64 KiB，只解析 `version` 字段，并使用 `NuGet.Versioning` 比较 prerelease。结果只保存在 `AboutViewModel` 内存中；应用不做启动时请求、不持久化检查时间、不下载、不安装，也不改变固定 DSH 版本或 Harness 状态。
+`DshReleaseService` 只访问固定 npm 官方 `latest` endpoint，禁用自动重定向和 Cookie，超时 15 秒，响应上限 64 KiB，只解析合法的 `version` 字段。结果只保存在 `AboutViewModel` 内存中；应用不做启动时请求、不持久化检查时间、不下载、不安装，也不改变启动参数或 Harness 状态。
+
+### 18.5 Desktop 0.4.0 安装体验增量
+
+- `EnvironmentPathProvider` 每次诊断和解析时合并 Machine、User 与 Process PATH，并按 Windows 语义去重，不修改或记录完整环境变量。
+- 自动 npx 使用无版本受控模板；新配置默认准备期限为 300 秒。v1 配置中的 60 秒统一迁移为 300 秒，其他合法自定义值保留，主文件与 `.bak` 共用迁移入口。
+- `InstallationGuideViewModel` 提供阶段/总计单调计时、详细脱敏日志、复制命令、复制日志、在合法工作目录打开 PowerShell及固定官方链接。
+- npm DNS、TLS、registry 和权限失败分别映射为 `DSH-E211` 至 `DSH-E214`；未知 stderr 保持 `DSH-E201`，不做不可靠推断。
 
 ### 18.4 新错误语义
 

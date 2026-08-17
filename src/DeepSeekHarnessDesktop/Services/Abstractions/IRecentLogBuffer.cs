@@ -7,4 +7,5 @@ public interface IRecentLogBuffer
     event EventHandler<ProcessOutputLine>? LineAdded;
     IReadOnlyList<ProcessOutputLine> Snapshot();
     void Add(ProcessOutputLine line);
+    void AddDesktop(string text);
 }

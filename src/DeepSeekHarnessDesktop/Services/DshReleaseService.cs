@@ -55,16 +55,13 @@ public sealed class DshReleaseService : IDshReleaseService, IDisposable
             using var document = JsonDocument.Parse(json);
             if (!document.RootElement.TryGetProperty("version", out var element)
                 || element.ValueKind != JsonValueKind.String
-                || !NuGetVersion.TryParse(element.GetString(), out var latest)
-                || !NuGetVersion.TryParse(DshPackageMetadata.VerifiedVersion, out var verified))
+                || !NuGetVersion.TryParse(element.GetString(), out var latest))
             {
                 throw new InvalidDataException("npm 响应未包含有效的 version 字段。");
             }
 
             return new DshUpdateCheckResult(
-                DshPackageMetadata.VerifiedVersion,
                 latest.ToNormalizedString(),
-                latest > verified,
                 checkedAt);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -78,7 +75,7 @@ public sealed class DshReleaseService : IDshReleaseService, IDisposable
     }
 
     private static DshUpdateCheckResult Failure(DateTimeOffset checkedAt, string message) =>
-        new(DshPackageMetadata.VerifiedVersion, null, false, checkedAt, message);
+        new(null, checkedAt, message);
 
     private static async Task<byte[]> ReadBoundedAsync(HttpContent content, CancellationToken cancellationToken)
     {

@@ -4,12 +4,13 @@ using Microsoft.Extensions.Logging;
 using DeepSeekHarnessDesktop.Utilities;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Nodes;
 
 namespace DeepSeekHarnessDesktop.Services;
 
 public sealed class SettingsService : ISettingsService, IDisposable
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
     private const string SettingsFileName = "settings.json";
     private readonly string _settingsPath;
     private readonly string _backupPath;
@@ -168,22 +169,38 @@ public sealed class SettingsService : ISettingsService, IDisposable
             FileShare.Read,
             4096,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
-        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        if (!document.RootElement.TryGetProperty("schemaVersion", out var schemaElement)
-            || !schemaElement.TryGetInt32(out var schemaVersion)
+        var document = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken)
+            ?? throw new InvalidDataException("Settings document is empty.");
+        if (document is not JsonObject root
+            || root["schemaVersion"]?.GetValue<int?>() is not { } schemaVersion
             || schemaVersion <= 0)
         {
             throw new InvalidDataException("Settings schemaVersion is missing or invalid.");
         }
+
+        Migrate(root, schemaVersion);
+        var settings = root.Deserialize<AppSettings>(_jsonOptions)
+            ?? throw new InvalidDataException("Settings document is empty.");
+        Validate(settings);
+        return settings;
+    }
+
+    private static void Migrate(JsonObject root, int schemaVersion)
+    {
+        if (schemaVersion == 1)
+        {
+            if (root["startupTimeoutSeconds"]?.GetValue<int?>() is 60)
+            {
+                root["startupTimeoutSeconds"] = 300;
+            }
+            root["schemaVersion"] = CurrentSchemaVersion;
+            return;
+        }
+
         if (schemaVersion != CurrentSchemaVersion)
         {
             throw new InvalidDataException($"Unsupported settings schema version: {schemaVersion}.");
         }
-
-        var settings = document.Deserialize<AppSettings>(_jsonOptions)
-            ?? throw new InvalidDataException("Settings document is empty.");
-        Validate(settings);
-        return settings;
     }
 
     private async Task WriteFileAsync(string path, AppSettings settings, CancellationToken cancellationToken)

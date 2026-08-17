@@ -57,6 +57,27 @@ public sealed class DependencyDiagnosticsServiceTests
         Assert.DoesNotContain(result.Errors, error => error.Code == "DSH-E101");
     }
 
+    [Fact]
+    public void EnvironmentPathProviderRefreshesAndDeduplicatesPersistedPaths()
+    {
+        var machine = @"C:\Program Files\nodejs;C:\Windows";
+        var user = @"C:\Users\test\bin;C:\Program Files\nodejs";
+        var process = @"C:\stale;C:\Windows";
+        var provider = new EnvironmentPathProvider((name, target) => target switch
+        {
+            EnvironmentVariableTarget.Machine => machine,
+            EnvironmentVariableTarget.User => user,
+            EnvironmentVariableTarget.Process => process,
+            _ => null,
+        });
+
+        var result = provider.GetSearchPath()!.Split(Path.PathSeparator);
+
+        Assert.Equal(
+            [@"C:\Program Files\nodejs", @"C:\Windows", @"C:\Users\test\bin", @"C:\stale"],
+            result);
+    }
+
     private sealed class TemporaryDirectory : IDisposable
     {
         public TemporaryDirectory()

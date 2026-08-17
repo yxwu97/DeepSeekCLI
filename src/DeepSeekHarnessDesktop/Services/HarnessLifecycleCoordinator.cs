@@ -13,6 +13,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
     private readonly IRuntimeHealthWatcher? _runtimeHealthWatcher;
     private readonly ISettingsService? _settingsService;
     private readonly AppSettings _settings;
+    private readonly IRecentLogBuffer? _recentLogs;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly object _operationSync = new();
     private readonly object _ownedProcessSync = new();
@@ -24,6 +25,8 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
     private ProcessExitedEventArgs? _pendingProcessExit;
     private bool _awaitingProcessRegistration;
     private Uri? _reportedUri;
+    private DateTimeOffset _ownedLaunchStartedAt;
+    private bool _ownedLaunchUsesNpx;
     private int _startRequested;
     private bool _disposed;
 
@@ -34,7 +37,8 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         IHarnessHealthMonitor healthMonitor,
         AppSettings settings,
         IRuntimeHealthWatcher? runtimeHealthWatcher = null,
-        ISettingsService? settingsService = null)
+        ISettingsService? settingsService = null,
+        IRecentLogBuffer? recentLogs = null)
     {
         _stateMachine = stateMachine;
         _resolver = resolver;
@@ -43,6 +47,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         _settings = settings;
         _runtimeHealthWatcher = runtimeHealthWatcher;
         _settingsService = settingsService;
+        _recentLogs = recentLogs;
         _processManager.OutputReceived += OnOutputReceived;
         _processManager.ProcessExited += OnProcessExited;
     }
@@ -332,7 +337,10 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
     {
         _reportedUri = null;
         var options = await _resolver.ResolveAsync(_settings, token);
-        PrepareOwnedProcessTracking(generation);
+        _recentLogs?.AddDesktop(
+            $"启动命令：{LaunchCommandLogFormatter.Format(options)}；"
+            + $"工作目录：{options.WorkingDirectory}；目标：{options.FallbackUri}；最长等待：{options.StartupTimeout.TotalMinutes:0} 分钟。");
+        PrepareOwnedProcessTracking(generation, options);
         HarnessProcessInfo process;
         try
         {
@@ -344,6 +352,8 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
             throw;
         }
         TrackOwnedProcess(process, generation);
+        token.ThrowIfCancellationRequested();
+        _recentLogs?.AddDesktop("进程已启动，正在等待本机 DSH 服务通过身份验证。");
         var ready = await _healthMonitor.WaitUntilReadyAsync(
             () => _reportedUri ?? options.FallbackUri,
             options.StartupTimeout,
@@ -455,6 +465,8 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         var changed = _stateMachine.TryTransition(stateEvent, generation, message, uri, processId, error);
         if (changed)
         {
+            var suffix = Current.Error is null ? string.Empty : $"（{Current.Error.Code}）";
+            _recentLogs?.AddDesktop($"{Current.StatusMessage}{suffix}");
             StateChanged?.Invoke(this, Current);
         }
 
@@ -516,7 +528,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         }
     }
 
-    private void PrepareOwnedProcessTracking(long generation)
+    private void PrepareOwnedProcessTracking(long generation, DshLaunchOptions options)
     {
         lock (_ownedProcessSync)
         {
@@ -524,6 +536,11 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
             _ownedProcessId = null;
             _ownedProcessGeneration = generation;
             _pendingProcessExit = null;
+            _ownedLaunchStartedAt = DateTimeOffset.UtcNow;
+            _ownedLaunchUsesNpx = string.Equals(
+                Path.GetFileName(options.ExecutablePath),
+                "npx.cmd",
+                StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -535,16 +552,14 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
             _ownedProcessId = null;
             _ownedProcessGeneration = null;
             _pendingProcessExit = null;
+            _ownedLaunchStartedAt = default;
+            _ownedLaunchUsesNpx = false;
         }
     }
 
     private void HandleUnexpectedProcessExit(ProcessExitedEventArgs e, long generation)
     {
-        var error = new HarnessError(
-            "DSH-E201",
-            "DSH 进程意外退出",
-            $"Process {e.ProcessId} exited with code {e.ExitCode}.",
-            true);
+        var error = ClassifyUnexpectedExit(e);
         if (!Commit(HarnessStateEvent.ProcessExited, generation, error.UserMessage, error: error))
         {
             return;
@@ -554,6 +569,30 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         {
             _operationCts?.Cancel();
         }
+    }
+
+    private HarnessError ClassifyUnexpectedExit(ProcessExitedEventArgs e)
+    {
+        DateTimeOffset startedAt;
+        bool usesNpx;
+        lock (_ownedProcessSync)
+        {
+            startedAt = _ownedLaunchStartedAt;
+            usesNpx = _ownedLaunchUsesNpx;
+        }
+
+        var classified = usesNpx
+            ? NpmFailureClassifier.Classify(
+                _recentLogs?.Snapshot()
+                    .Where(line => line.Source == ProcessOutputSource.StandardError && line.Timestamp >= startedAt)
+                    .Select(line => line.Text)
+                ?? [])
+            : null;
+        return classified ?? new HarnessError(
+            "DSH-E201",
+            "DSH 进程意外退出",
+            $"Process {e.ProcessId} exited with code {e.ExitCode}.",
+            true);
     }
 
     private static HarnessError Error205(string? detail) =>
