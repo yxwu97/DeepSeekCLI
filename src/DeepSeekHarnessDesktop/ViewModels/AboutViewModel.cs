@@ -35,6 +35,7 @@ public sealed partial class AboutViewModel : ObservableObject
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         OpenDocumentationCommand = new RelayCommand(() => linkLauncher.Open(OfficialResource.DshDocumentation));
         OpenNpmPackageCommand = new RelayCommand(() => linkLauncher.Open(OfficialResource.NpmPackage));
+        OpenDesktopGitHubCommand = new RelayCommand(() => linkLauncher.Open(OfficialResource.DesktopGitHub));
     }
 
     public IAsyncRelayCommand RefreshDiagnosticsCommand { get; }
@@ -42,6 +43,7 @@ public sealed partial class AboutViewModel : ObservableObject
     public IRelayCommand CancelCommand { get; }
     public IRelayCommand OpenDocumentationCommand { get; }
     public IRelayCommand OpenNpmPackageCommand { get; }
+    public IRelayCommand OpenDesktopGitHubCommand { get; }
 
     public string DesktopVersion => Diagnostics.DesktopVersion;
     public string DotNetVersion => Diagnostics.DotNetVersion;

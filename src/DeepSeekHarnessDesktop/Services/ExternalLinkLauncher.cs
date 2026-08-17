@@ -11,6 +11,7 @@ public sealed class ExternalLinkLauncher : IExternalLinkLauncher
             [OfficialResource.NodeDownload] = new("https://nodejs.org/en/download"),
             [OfficialResource.DshDocumentation] = new("https://github.com/deepseek-ai/DeepSeek-Harness"),
             [OfficialResource.NpmPackage] = new("https://www.npmjs.com/package/@deepseek-ai/dsh"),
+            [OfficialResource.DesktopGitHub] = new("https://github.com/yxwu97/DeepSeekCLI"),
         };
 
     public void Open(OfficialResource resource)

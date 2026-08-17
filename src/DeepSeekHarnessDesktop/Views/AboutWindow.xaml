@@ -60,15 +60,27 @@
       </Grid>
     </Border>
     <Grid Grid.Row="4">
-      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
       <StackPanel Orientation="Horizontal">
-        <Button Command="{Binding RefreshDiagnosticsCommand}" Content="重新诊断" />
-        <Button Command="{Binding CheckUpdateCommand}" Content="检查更新" />
-        <Button Command="{Binding OpenDocumentationCommand}" Content="官方文档" />
-        <Button Command="{Binding OpenNpmPackageCommand}" Content="npm" />
-        <Button Command="{Binding CancelCommand}" Content="取消" />
+        <Button Command="{Binding OpenDesktopGitHubCommand}"
+                Content="项目 GitHub"
+                ToolTip="打开本系统 GitHub 项目，可前往 Releases 下载发布版本"
+                AutomationProperties.Name="打开本系统 GitHub 项目" />
+        <Button Command="{Binding OpenDocumentationCommand}" Content="DSH 文档" />
+        <Button Command="{Binding OpenNpmPackageCommand}" Content="npm 包" />
       </StackPanel>
-      <Button Grid.Column="1" Width="76" Content="关闭" IsCancel="True" AutomationProperties.Name="关闭关于窗口" />
+      <Grid Grid.Row="1" Margin="0,8,0,0">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <StackPanel Orientation="Horizontal">
+          <Button Command="{Binding RefreshDiagnosticsCommand}" Content="重新诊断" />
+          <Button Command="{Binding CheckUpdateCommand}" Content="检查更新" />
+          <Button Command="{Binding CancelCommand}" Content="取消" />
+        </StackPanel>
+        <Button Grid.Column="1" Width="76" Content="关闭" IsCancel="True" AutomationProperties.Name="关闭关于窗口" />
+      </Grid>
     </Grid>
   </Grid>
 </Window>

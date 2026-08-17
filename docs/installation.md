@@ -54,6 +54,8 @@ Chat 只内嵌精确的官方 HTTPS origin。其他安全 HTTP(S) 链接在系�
 
 “关于”窗口可手动查询 npm 官方 registry 的 `latest` 版本。应用启动时不会后台检查，检查结果不会下载、安装、持久化或改变启动参数。自动 npx 路径不固定版本，由 npm 在每次需要解析包时选择当前版本；全局 `dsh.cmd` 仍优先使用。
 
+“关于”窗口还提供“项目 GitHub”入口，固定打开本系统项目 `https://github.com/yxwu97/DeepSeekCLI`。需要下载桌面程序时，可在项目页面进入 Releases，选择最新发布版本的 Windows x64 ZIP。
+
 ## 本地数据
 
 - 配置：`%APPDATA%\DeepSeekHarnessDesktop\settings.json`
@@ -88,4 +90,4 @@ Chat 工具栏的清除按钮会先要求确认，然后仅对 Chat profile 调�
 - `WEB-E318`：系统浏览器无法打开外部链接。
 - `CFG-E401`：主配置与备份均不可用，应用已使用默认设置启动。
 
-“关于”窗口会显示 Desktop、.NET、WebView2、Node.js、全局 DSH 路径和版本，以及最近一次 npm `latest` 手动查询结果。
+“关于”窗口会显示 Desktop、.NET、WebView2、Node.js、全局 DSH 路径和版本，以及最近一次 npm `latest` 手动查询结果，并提供本系统 GitHub 下载入口。

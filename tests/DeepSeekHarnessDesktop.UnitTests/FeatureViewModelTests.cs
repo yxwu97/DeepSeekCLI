@@ -79,6 +79,21 @@ public sealed class FeatureViewModelTests
     }
 
     [Fact]
+    public void AboutProjectGitHubCommandUsesFixedOfficialResource()
+    {
+        var linkLauncher = new FakeLinkLauncher();
+        var viewModel = new AboutViewModel(
+            new FakeDiagnosticsService(LaunchableDiagnostics()),
+            new FakeReleaseService(new DshUpdateCheckResult("0.1.0", DateTimeOffset.Now)),
+            linkLauncher,
+            LaunchableDiagnostics());
+
+        viewModel.OpenDesktopGitHubCommand.Execute(null);
+
+        Assert.Equal(OfficialResource.DesktopGitHub, linkLauncher.LastResource);
+    }
+
+    [Fact]
     public void InstallationGuideActivationHidesRunningWebViewPriority()
     {
         var coordinator = new FakeCoordinator(RunningOwned());
@@ -255,7 +270,8 @@ public sealed class FeatureViewModelTests
 
     private sealed class FakeLinkLauncher : IExternalLinkLauncher
     {
-        public void Open(OfficialResource resource) { }
+        public OfficialResource? LastResource { get; private set; }
+        public void Open(OfficialResource resource) => LastResource = resource;
         public void Open(Uri uri) { }
     }
 

@@ -5,6 +5,7 @@ public enum OfficialResource
     NodeDownload,
     DshDocumentation,
     NpmPackage,
+    DesktopGitHub,
 }
 
 public interface IExternalLinkLauncher
