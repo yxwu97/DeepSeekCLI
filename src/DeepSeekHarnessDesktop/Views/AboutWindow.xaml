@@ -13,53 +13,94 @@
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
-      <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
     <TextBlock FontSize="22" FontWeight="SemiBold" Text="DeepSeek Harness Desktop" />
     <TextBlock Grid.Row="1" Margin="0,5,0,18" Foreground="{StaticResource MutedTextBrush}" Text="Windows x64" />
-    <Grid Grid.Row="2">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="150" />
-        <ColumnDefinition Width="*" />
-      </Grid.ColumnDefinitions>
-      <Grid.RowDefinitions>
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
-      </Grid.RowDefinitions>
-      <TextBlock Text="Desktop 版本" />
-      <TextBlock Grid.Column="1" Text="{Binding DesktopVersion}" />
-      <TextBlock Grid.Row="1" Text=".NET 版本" />
-      <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DotNetVersion}" />
-      <TextBlock Grid.Row="2" Text="WebView2 Runtime" />
-      <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding WebView2RuntimeVersion, TargetNullValue=未检测到}" TextWrapping="Wrap" />
-      <TextBlock Grid.Row="3" Text="Node.js" />
-      <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding NodeVersion, TargetNullValue=未检测到}" />
-      <TextBlock Grid.Row="4" Text="npx" />
-      <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding NpxPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding NpxPath}" />
-      <TextBlock Grid.Row="5" Text="全局 DSH 版本" />
-      <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding DshVersion}" />
-      <TextBlock Grid.Row="6" Text="全局 DSH" />
-      <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding DshPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DshPath}" />
-    </Grid>
-    <Border Grid.Row="3" Margin="0,18,0,14" Padding="12" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#FAFAFA">
-      <Grid>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="140" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-        <TextBlock Text="npm latest" />
-        <TextBlock Grid.Column="1" Text="{Binding LatestVersion}" />
-        <TextBlock Grid.Row="1" Text="检查时间" />
-        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CheckedAt}" />
-        <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Margin="0,8,0,0" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" Text="{Binding UpdateStatus}" />
-      </Grid>
-    </Border>
-    <Grid Grid.Row="4">
+    <TabControl Grid.Row="2" Margin="0,0,0,14">
+      <TabItem Header="系统信息">
+        <Grid Margin="12">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+          </Grid.RowDefinitions>
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="150" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <TextBlock Text="Desktop 版本" />
+            <TextBlock Grid.Column="1" Text="{Binding DesktopVersion}" />
+            <TextBlock Grid.Row="1" Text=".NET 版本" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DotNetVersion}" />
+            <TextBlock Grid.Row="2" Text="WebView2 Runtime" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding WebView2RuntimeVersion, TargetNullValue=未检测到}" TextWrapping="Wrap" />
+            <TextBlock Grid.Row="3" Text="Node.js" />
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding NodeVersion, TargetNullValue=未检测到}" />
+            <TextBlock Grid.Row="4" Text="npx" />
+            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding NpxPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding NpxPath}" />
+            <TextBlock Grid.Row="5" Text="全局 DSH 版本" />
+            <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding DshVersion}" />
+            <TextBlock Grid.Row="6" Text="全局 DSH" />
+            <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding DshPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DshPath}" />
+          </Grid>
+          <Border Grid.Row="1" Margin="0,18,0,0" Padding="12" VerticalAlignment="Top" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#FAFAFA">
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="140" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+              <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+              <TextBlock Text="npm latest" />
+              <TextBlock Grid.Column="1" Text="{Binding LatestVersion}" />
+              <TextBlock Grid.Row="1" Text="检查时间" />
+              <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CheckedAt}" />
+              <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Margin="0,8,0,0" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" Text="{Binding UpdateStatus}" />
+            </Grid>
+          </Border>
+        </Grid>
+      </TabItem>
+      <TabItem Header="版本记录">
+        <ScrollViewer Padding="12" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <ItemsControl ItemsSource="{Binding VersionHistory}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Margin="0,0,0,18">
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock FontSize="16" FontWeight="SemiBold">
+                      <Run Text="版本 " /><Run Text="{Binding Version}" />
+                    </TextBlock>
+                    <TextBlock Margin="12,3,0,0" Foreground="{StaticResource MutedTextBrush}" Text="{Binding Date}" />
+                  </StackPanel>
+                  <ItemsControl Margin="0,7,0,0" ItemsSource="{Binding Changes}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Grid Margin="0,2,0,2">
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="*" />
+                          </Grid.ColumnDefinitions>
+                          <TextBlock Text="•" />
+                          <TextBlock Grid.Column="1" Text="{Binding}" TextWrapping="Wrap" />
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
+    <Grid Grid.Row="3">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />

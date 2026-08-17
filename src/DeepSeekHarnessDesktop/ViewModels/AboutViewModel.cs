@@ -24,12 +24,14 @@ public sealed partial class AboutViewModel : ObservableObject
         IDependencyDiagnosticsService diagnosticsService,
         IDshReleaseService releaseService,
         IExternalLinkLauncher linkLauncher,
+        IVersionHistoryProvider versionHistoryProvider,
         DependencyDiagnosticsResult diagnostics)
     {
         _diagnosticsService = diagnosticsService;
         _releaseService = releaseService;
         _linkLauncher = linkLauncher;
         _diagnostics = diagnostics;
+        VersionHistory = versionHistoryProvider.GetEntries();
         RefreshDiagnosticsCommand = new AsyncRelayCommand(RefreshDiagnosticsAsync, () => !IsBusy);
         CheckUpdateCommand = new AsyncRelayCommand(CheckUpdateAsync, () => !IsBusy);
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
@@ -44,6 +46,7 @@ public sealed partial class AboutViewModel : ObservableObject
     public IRelayCommand OpenDocumentationCommand { get; }
     public IRelayCommand OpenNpmPackageCommand { get; }
     public IRelayCommand OpenDesktopGitHubCommand { get; }
+    public IReadOnlyList<VersionHistoryEntry> VersionHistory { get; }
 
     public string DesktopVersion => Diagnostics.DesktopVersion;
     public string DotNetVersion => Diagnostics.DotNetVersion;

@@ -63,6 +63,7 @@ public partial class App : System.Windows.Application
             .AddSingleton<AccountViewModel>()
             .AddSingleton<IDshReleaseService>(_ => new DshReleaseService())
             .AddSingleton<IExternalLinkLauncher, ExternalLinkLauncher>()
+            .AddSingleton<IVersionHistoryProvider, VersionHistoryProvider>()
             .AddSingleton<IClipboardService, SystemClipboardService>()
             .AddSingleton<ITerminalLauncher, PowerShellTerminalLauncher>()
             .AddSingleton<IUserConfirmationService, UserConfirmationService>()

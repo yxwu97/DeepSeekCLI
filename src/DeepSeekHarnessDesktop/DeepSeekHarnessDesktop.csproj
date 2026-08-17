@@ -25,4 +25,9 @@
     <PackageReference Include="Serilog.Extensions.Logging" />
     <PackageReference Include="Serilog.Sinks.File" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\VERSION_HISTORY.md"
+                      Link="Resources\VERSION_HISTORY.md"
+                      LogicalName="DeepSeekHarnessDesktop.VERSION_HISTORY.md" />
+  </ItemGroup>
 </Project>

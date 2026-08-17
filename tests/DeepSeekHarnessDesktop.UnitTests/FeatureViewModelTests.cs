@@ -70,6 +70,7 @@ public sealed class FeatureViewModelTests
             new FakeDiagnosticsService(LaunchableDiagnostics()),
             new FakeReleaseService(expected),
             new FakeLinkLauncher(),
+            new FakeVersionHistoryProvider(),
             LaunchableDiagnostics());
 
         await viewModel.CheckUpdateCommand.ExecuteAsync(null);
@@ -86,6 +87,7 @@ public sealed class FeatureViewModelTests
             new FakeDiagnosticsService(LaunchableDiagnostics()),
             new FakeReleaseService(new DshUpdateCheckResult("0.1.0", DateTimeOffset.Now)),
             linkLauncher,
+            new FakeVersionHistoryProvider(),
             LaunchableDiagnostics());
 
         viewModel.OpenDesktopGitHubCommand.Execute(null);
@@ -273,6 +275,12 @@ public sealed class FeatureViewModelTests
         public OfficialResource? LastResource { get; private set; }
         public void Open(OfficialResource resource) => LastResource = resource;
         public void Open(Uri uri) { }
+    }
+
+    private sealed class FakeVersionHistoryProvider : IVersionHistoryProvider
+    {
+        public IReadOnlyList<VersionHistoryEntry> GetEntries() =>
+            [new("0.0.0", "2026-01-01", ["测试版本记录"])];
     }
 
     private sealed class FakeConfirmation(bool result) : IUserConfirmationService

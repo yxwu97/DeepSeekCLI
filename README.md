@@ -29,6 +29,7 @@ DeepSeek Harness Desktop 是面向 Windows 的 .NET 桌面宿主，为 DeepSeek 
 - 支持测试并切换本机 DSH 服务地址，包括 Owned 实例的受控非默认端口重启。
 - 自动 npx 路径跟随 npm 当前解析版本；“关于”窗口可只读查询 npm `latest`，不会自动安装或持久化版本。
 - “关于”窗口提供本系统 GitHub 项目入口，方便查看 Releases 和下载发布版本。
+- “关于”窗口内置系统版本记录，可离线查看各版本日期和主要变更。
 
 ## 使用与开发
 
