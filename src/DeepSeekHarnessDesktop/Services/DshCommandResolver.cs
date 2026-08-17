@@ -63,7 +63,7 @@ public sealed class DshCommandResolver : IDshCommandResolver
         var arguments = new List<string>
         {
             "-y",
-            DshPackageMetadata.PackageName,
+            DshPackageMetadata.ValidatedPackageSpec,
             "web",
         };
         AppendPortIfNeeded(arguments, serviceUri);

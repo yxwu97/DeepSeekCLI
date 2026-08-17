@@ -76,7 +76,7 @@ public sealed class HarnessLifecycleCoordinatorTests
         fixture.Health.BlockReadyUntilCancelled = true;
 
         var starting = fixture.Coordinator.StartAsync(CancellationToken.None);
-        await fixture.Process.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await fixture.Health.ReadyStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await fixture.Coordinator.StopAsync(CancellationToken.None);
         await starting;
 
@@ -84,6 +84,52 @@ public sealed class HarnessLifecycleCoordinatorTests
         Assert.Equal(1, fixture.Process.StartCount);
         Assert.Equal(1, fixture.Process.StopCount);
         await fixture.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task NpxStartReportsAutomaticPreparationWhileWaiting()
+    {
+        var fixture = await CreateFixtureAsync(useNpx: true);
+        fixture.Health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        fixture.Health.BlockReadyUntilCancelled = true;
+
+        var starting = fixture.Coordinator.StartAsync(CancellationToken.None);
+        await fixture.Health.ReadyStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(HarnessRuntimeState.Starting, fixture.Coordinator.Current.State);
+        Assert.Equal(
+            "正在通过 npx 自动准备并启动 DSH，无需手动操作，最长等待 5 秒",
+            fixture.Coordinator.Current.StatusMessage);
+
+        await fixture.Coordinator.StopAsync(CancellationToken.None);
+        await starting;
+        await fixture.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task StopDuringAutomaticInitializationDoesNotEscapeCancellation()
+    {
+        var logs = new RecentLogBuffer();
+        var process = new FakeProcessManager(logs);
+        var health = new FakeHealthMonitor { BlockReadyUntilCancelled = true };
+        health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = true };
+        var coordinator = new HarnessLifecycleCoordinator(
+            new HarnessStateMachine(),
+            new FakeResolver(settings, useNpx: true),
+            process,
+            health,
+            settings,
+            recentLogs: logs);
+
+        var initializing = coordinator.InitializeAsync(CancellationToken.None);
+        await health.ReadyStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await coordinator.StopAsync(CancellationToken.None);
+        await initializing;
+
+        Assert.Equal(HarnessRuntimeState.Stopped, coordinator.Current.State);
+        Assert.Equal(1, process.StopCount);
+        await coordinator.DisposeAsync();
     }
 
     [Fact]
@@ -442,6 +488,7 @@ public sealed class HarnessLifecycleCoordinatorTests
         public bool IgnoreCancellation { get; set; }
         public bool BlockProbeUntilCancelled { get; set; }
         public TaskCompletionSource ProbeStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReadyStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public void EnqueueProbe(HealthProbeStatus status) => _probes.Enqueue(status);
 
@@ -462,6 +509,7 @@ public sealed class HarnessLifecycleCoordinatorTests
             TimeSpan startupTimeout,
             CancellationToken cancellationToken)
         {
+            ReadyStarted.TrySetResult();
             if (BlockReadyUntilCancelled)
             {
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);

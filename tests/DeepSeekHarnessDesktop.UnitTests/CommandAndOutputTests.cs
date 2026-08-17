@@ -25,7 +25,7 @@ public sealed class CommandAndOutputTests : IDisposable
     }
 
     [Fact]
-    public async Task ResolverFallsBackToUnversionedNpxCommand()
+    public async Task ResolverFallsBackToValidatedNpxCommand()
     {
         var npx = CreateFile("npx.cmd");
         var resolver = new DshCommandResolver(name => name == "PATH" ? _temporaryDirectory : null);
@@ -33,12 +33,12 @@ public sealed class CommandAndOutputTests : IDisposable
         var options = await resolver.ResolveAsync(CreateSettings(), CancellationToken.None);
 
         Assert.Equal(npx, options.ExecutablePath, ignoreCase: true);
-        Assert.Equal(["-y", "@deepseek-ai/dsh", "web"], options.Arguments);
+        Assert.Equal(["-y", "@deepseek-ai/dsh@0.1.0-rc.6", "web"], options.Arguments);
     }
 
     [Theory]
     [InlineData("dsh.cmd", 43123, "web,--port,43123")]
-    [InlineData("npx.cmd", 65535, "-y,@deepseek-ai/dsh,web,--port,65535")]
+    [InlineData("npx.cmd", 65535, "-y,@deepseek-ai/dsh@0.1.0-rc.6,web,--port,65535")]
     public async Task ResolverAddsOnlyValidatedNonDefaultPort(string command, int port, string expected)
     {
         CreateFile(command);

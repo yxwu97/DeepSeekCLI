@@ -76,7 +76,7 @@ public sealed class FeatureViewModelTests
         await viewModel.CheckUpdateCommand.ExecuteAsync(null);
 
         Assert.Same(expected, viewModel.UpdateResult);
-        Assert.Contains("不锁定版本", viewModel.UpdateStatus, StringComparison.Ordinal);
+        Assert.Contains("已验证版本 0.1.0-rc.6", viewModel.UpdateStatus, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public sealed class FeatureViewModelTests
         viewModel.CopyManualInstallCommand.Execute(null);
         viewModel.OpenPowerShellCommand.Execute(null);
 
-        Assert.Equal("npx @deepseek-ai/dsh web", clipboard.Text);
+        Assert.Equal("npx @deepseek-ai/dsh@0.1.0-rc.6 web", clipboard.Text);
         Assert.Equal(settings.WorkspacePath, terminal.WorkingDirectory);
         Assert.EndsWith("/ 00:45", viewModel.ElapsedText, StringComparison.Ordinal);
     }

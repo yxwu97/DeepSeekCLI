@@ -14,6 +14,7 @@ public enum HarnessStateEvent
     PreflightExternalRedirect,
     PreflightInvalidUri,
     PreflightUnreachable,
+    ProcessStarted,
     HealthReady,
     Stop,
     Cancel,

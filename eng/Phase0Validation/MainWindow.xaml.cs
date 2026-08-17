@@ -24,6 +24,7 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        var stage = "创建 WebView2 环境";
         try
         {
             _userDataFolder = Path.Combine(
@@ -33,12 +34,16 @@ public partial class MainWindow : Window
                 Guid.NewGuid().ToString("N"));
             var environment = await CoreWebView2Environment.CreateAsync(
                 userDataFolder: _userDataFolder);
+            stage = "初始化 Code WebView2";
             await Browser.EnsureCoreWebView2Async(environment);
+            stage = "创建 Chat profile 选项";
             var chatOptions = environment.CreateCoreWebView2ControllerOptions();
             chatOptions.ProfileName = "Chat";
             chatOptions.IsInPrivateModeEnabled = false;
+            stage = "初始化 Chat WebView2";
             await ChatBrowser.EnsureCoreWebView2Async(environment, chatOptions);
 
+            stage = "验证双 profile 隔离与状态保留";
             await ValidateDualProfilesAsync();
 
             Browser.PreviewKeyDown += OnBrowserPreviewKeyDown;
@@ -50,7 +55,7 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
-            StatusText.Text = $"FAIL: {exception.Message}";
+            StatusText.Text = $"FAIL [{stage}]: {exception}";
             _initialization.TrySetResult((false, StatusText.Text));
         }
     }

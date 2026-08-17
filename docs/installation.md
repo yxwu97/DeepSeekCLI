@@ -30,7 +30,8 @@ Chat 只内嵌精确的官方 HTTPS origin。其他安全 HTTP(S) 链接在系�
 
 - “Node.js 下载”只打开 Node.js 官方网站，不会下载或运行安装程序。
 - “重新检查”会重新读取系统、用户和进程 PATH，再探测 WebView2、全局 DSH、Node.js 和 npx。
-- “准备并启动”会先要求确认，然后复用应用现有的 Owned DSH 启动链路运行 `npx -y @deepseek-ai/dsh web`。包名和参数固定，但不锁定 DSH 版本。
+- “准备并启动”会先要求确认，然后复用应用现有的 Owned DSH 启动链路运行 `npx -y @deepseek-ai/dsh@0.1.0-rc.6 web`。该版本已经过 Desktop 的真实启动和生命周期验证。
+- npx 进程创建后，主窗口会继续显示“正在通过 npx 自动准备并启动 DSH”；下载、缓存更新和服务就绪检查均由应用自动完成，无需执行全局安装命令。
 - 准备和启动期间可以取消；应用会通过 Windows Job Object 回收本次创建的整个进程树。
 - 引导会显示当前阶段、阶段耗时、总耗时和最长等待时间；新配置默认最长等待 5 分钟。
 - 日志实时显示 `[时间] [desktop/stdout/stderr] 内容`，最多保留 1000 行，并支持复制已经规范化和脱敏的日志。
@@ -39,7 +40,7 @@ Chat 只内嵌精确的官方 HTTPS origin。其他安全 HTTP(S) 链接在系�
 
 1. 点击“Node.js 下载”，安装 Node.js LTS x64；安装后重新打开 PowerShell。
 2. 执行 `node --version` 和 `npx --version`，确认两个命令均可用；返回应用点击“重新检查”，仍无法识别时重启应用。
-3. 在应用所选工作目录打开 PowerShell，执行 `npx @deepseek-ai/dsh web` 并保持终端运行。
+3. 在应用所选工作目录打开 PowerShell，执行 `npx @deepseek-ai/dsh@0.1.0-rc.6 web` 并保持终端运行。
 4. 等待终端显示本机服务地址，再返回应用连接默认地址 `http://127.0.0.1:3080/`。
 
 手动启动的进程属于外部实例。应用只连接和刷新，不会停止或重启它。引导提供复制命令、在工作目录打开 PowerShell、DSH 官方文档和 npm 包页面的快捷入口；打开 PowerShell 不会自动执行命令。
@@ -56,7 +57,7 @@ Chat 只内嵌精确的官方 HTTPS origin。其他安全 HTTP(S) 链接在系�
 
 ## 手动检查更新
 
-“关于”窗口可手动查询 npm 官方 registry 的 `latest` 版本。应用启动时不会后台检查，检查结果不会下载、安装、持久化或改变启动参数。自动 npx 路径不固定版本，由 npm 在每次需要解析包时选择当前版本；全局 `dsh.cmd` 仍优先使用。
+“关于”窗口可手动查询 npm 官方 registry 的 `latest` 版本。应用启动时不会后台检查，检查结果不会下载、安装、持久化或改变启动参数。自动 npx 路径固定使用已验证的 `0.1.0-rc.6`；全局 `dsh.cmd` 仍优先使用。
 
 “关于”窗口还提供“项目 GitHub”入口，固定打开本系统项目 `https://github.com/yxwu97/DeepSeekCLI`。需要下载桌面程序时，可在项目页面进入 Releases，选择最新发布版本的 Windows x64 ZIP。“版本记录”页签内置于应用，可离线查看各版本日期和主要变更。
 

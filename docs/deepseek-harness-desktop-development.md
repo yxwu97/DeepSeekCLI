@@ -43,13 +43,13 @@
 - Web UI 内仍需选择工作区，选择前会话输入不可用。
 - DSH 当前处于 Developer Preview，后续版本可能存在不兼容变更。
 
-桌面宿主将官方命令收紧为 `npx -y @deepseek-ai/dsh web`：`-y` 避免无控制台时卡在首次安装确认，包名和参数保持受控，但不锁定 DSH 版本。
+桌面宿主将官方命令收紧为 `npx -y @deepseek-ai/dsh@0.1.0-rc.6 web`：`-y` 避免无控制台时卡在首次安装确认，显式已验证版本避免 npm 静默切换到未经验证的预发布版本。
 
 当前开发机环境：
 
 - Node.js：`v24.15.0`
 - npm：`11.12.1`
-- 已缓存 DSH：版本随 npm 缓存和当前解析结果变化
+- 已验证 DSH：`0.1.0-rc.6`
 - `dsh` 当前不在全局 PATH 中
 - .NET SDK：已安装 9.0 和 10.0
 - .NET 8 Windows Desktop Runtime：已安装
@@ -58,7 +58,7 @@
 因此，首版默认使用以下命令启动：
 
 ```powershell
-npx -y @deepseek-ai/dsh web
+npx -y @deepseek-ai/dsh@0.1.0-rc.6 web
 ```
 
 不得在程序中硬编码 npm 缓存目录。npm 的 `_npx` 缓存哈希属于内部实现，升级或清理缓存后可能变化。
@@ -205,12 +205,14 @@ Failed
 
 1. 若设置中配置了自定义命令，则使用自定义命令。
 2. 若 PATH 中存在 `dsh.cmd`，执行 `dsh.cmd web`。
-3. 否则执行 `npx.cmd -y @deepseek-ai/dsh web`。
+3. 否则执行 `npx.cmd -y @deepseek-ai/dsh@0.1.0-rc.6 web`。
 4. 均不可用时显示 Node.js/npm 未安装或 PATH 配置错误。
 
 Windows 下 `.cmd` 启动脚本需要通过受控的 `cmd.exe /d /v:off /s /c` 子进程执行，以便重定向输出。默认 `.cmd` 只接收程序内置参数；工作目录通过 `ProcessStartInfo.WorkingDirectory` 设置，不拼接到 Shell 命令中。自定义模式首版只接受 `.exe`/`.com`，参数逐项加入 `ProcessStartInfo.ArgumentList`，不支持自定义 `.cmd`/`.bat`。
 
 首版不安装 Node.js、不全局安装或主动升级 DSH。默认启动的 `npx -y` 在缓存缺失时可以访问 npm registry 并写入当前用户缓存；这是“双击启动且无隐藏交互”的必要取舍，下载进度和失败原因必须显示在启动日志中。
+
+Desktop 0.6.1 将自动 npx 包规格固定为已验证的 `@deepseek-ai/dsh@0.1.0-rc.6`。npm `latest` 检查只提供信息，不得直接改变启动版本；升级该常量前必须完成真实启动、身份探测、停止和重启验证。
 
 ### 7.3 服务就绪检测
 
@@ -376,7 +378,7 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 ### 阶段一：最小闭环
 
 - 创建 WPF 项目和 WebView2
-- 启动 `npx -y @deepseek-ai/dsh web`
+- 启动 `npx -y @deepseek-ai/dsh@0.1.0-rc.6 web`
 - 捕获日志
 - 探测 `127.0.0.1:3080`
 - 服务就绪后加载页面
@@ -478,10 +480,10 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 
 ```text
 dsh.cmd web --port <1-65535>
-npx.cmd -y @deepseek-ai/dsh web --port <1-65535>
+npx.cmd -y @deepseek-ai/dsh@0.1.0-rc.6 web --port <1-65535>
 ```
 
-`.cmd` 构造器不接受用户参数列表或 Shell 文本。包名、`web` 和可选数字端口均由程序生成；取消版本锁定不允许用户替换包名、dist-tag 或附加参数。
+`.cmd` 构造器不接受用户参数列表或 Shell 文本。包规格、`web` 和可选数字端口均由程序生成；更新版本锁定不允许用户替换包名、dist-tag 或附加参数。
 
 地址应用由生命周期协调器串行处理：停止/失败状态只原子保存；外部实例先确认新地址身份再替换 watcher，失败则恢复原 watcher；Owned 实例由 UI 确认后保存，并严格执行停止旧进程、两次确认旧端点不可达、启动新进程。启动、停止、重启或初始化期间返回 `DSH-E207`。
 
@@ -495,6 +497,11 @@ npx.cmd -y @deepseek-ai/dsh web --port <1-65535>
 - 自动 npx 使用无版本受控模板；新配置默认准备期限为 300 秒。v1 配置中的 60 秒统一迁移为 300 秒，其他合法自定义值保留，主文件与 `.bak` 共用迁移入口。
 - `InstallationGuideViewModel` 提供阶段/总计单调计时、详细脱敏日志、复制命令、复制日志、在合法工作目录打开 PowerShell及固定官方链接。
 - npm DNS、TLS、registry 和权限失败分别映射为 `DSH-E211` 至 `DSH-E214`；未知 stderr 保持 `DSH-E201`，不做不可靠推断。
+
+### 18.6 Desktop 0.6.1 已验证版本启动修正
+
+- 自动 npx 包规格固定为 `@deepseek-ai/dsh@0.1.0-rc.6`，取代 0.4.0 的无版本模板。
+- npm `latest` 仍可手动查询，但结果不修改启动参数；新版本必须经过真实 Windows 生命周期验证后再更新代码常量。
 
 ### 18.4 新错误语义
 

@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services.Abstractions;
+using DeepSeekHarnessDesktop.Utilities;
 
 namespace DeepSeekHarnessDesktop.ViewModels;
 
@@ -60,7 +61,7 @@ public sealed partial class AboutViewModel : ObservableObject
     {
         null => "仅在点击“检查更新”时访问 npm 官方 registry。",
         { Succeeded: false } result => result.ErrorMessage ?? "检查更新失败。",
-        { Succeeded: true } result => $"npm 当前发布版本为 {result.LatestVersion}；npx 自动启动不锁定版本。",
+        { Succeeded: true } result => $"npm 当前发布版本为 {result.LatestVersion}；自动启动使用已验证版本 {DshPackageMetadata.ValidatedVersion}。",
     };
     public string CheckedAt => UpdateResult is null ? "-" : UpdateResult.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss");
 

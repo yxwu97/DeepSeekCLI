@@ -19,6 +19,7 @@ public sealed class HarnessStateMachine
             [(HarnessRuntimeState.Starting, HarnessStateEvent.PreflightExternalRedirect)] = HarnessRuntimeState.Failed,
             [(HarnessRuntimeState.Starting, HarnessStateEvent.PreflightInvalidUri)] = HarnessRuntimeState.Failed,
             [(HarnessRuntimeState.Starting, HarnessStateEvent.PreflightUnreachable)] = HarnessRuntimeState.Starting,
+            [(HarnessRuntimeState.Starting, HarnessStateEvent.ProcessStarted)] = HarnessRuntimeState.Starting,
             [(HarnessRuntimeState.Starting, HarnessStateEvent.HealthReady)] = HarnessRuntimeState.RunningOwned,
             [(HarnessRuntimeState.Starting, HarnessStateEvent.Stop)] = HarnessRuntimeState.Stopping,
             [(HarnessRuntimeState.Starting, HarnessStateEvent.Cancel)] = HarnessRuntimeState.Stopping,

@@ -80,10 +80,18 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
                     Commit(HarnessStateEvent.InvalidUri, generation, "服务地址无效", error: new HarnessError("DSH-E202", "服务地址无效", probe.Detail ?? string.Empty, true));
                     break;
                 case HealthProbeStatus.Unreachable when _settings.AutoStart:
-                    Commit(HarnessStateEvent.InitializationAutoStart, generation, "正在创建 DSH 进程");
+                    Commit(HarnessStateEvent.InitializationAutoStart, generation, "正在准备 DSH 自动启动");
                     try
                     {
                         await StartOwnedAsync(generation, token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        await CancelStartingAsync(generation);
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            throw;
+                        }
                     }
                     catch (HarnessException exception)
                     {
@@ -126,7 +134,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
                         return;
                     }
 
-                    Commit(HarnessStateEvent.PreflightUnreachable, generation, "正在创建 DSH 进程");
+                    Commit(HarnessStateEvent.PreflightUnreachable, generation, "正在准备 DSH 自动启动");
                     await StartOwnedAsync(generation, token);
                 }
                 catch (OperationCanceledException)
@@ -353,7 +361,10 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         }
         TrackOwnedProcess(process, generation);
         token.ThrowIfCancellationRequested();
-        _recentLogs?.AddDesktop("进程已启动，正在等待本机 DSH 服务通过身份验证。");
+        var launchMessage = IsNpxLaunch(options)
+            ? $"正在通过 npx 自动准备并启动 DSH，无需手动操作，最长等待 {FormatStartupTimeout(options.StartupTimeout)}"
+            : "DSH 进程已创建，正在等待服务就绪";
+        Commit(HarnessStateEvent.ProcessStarted, generation, launchMessage, processId: process.ProcessId);
         var ready = await _healthMonitor.WaitUntilReadyAsync(
             () => _reportedUri ?? options.FallbackUri,
             options.StartupTimeout,
@@ -537,12 +548,19 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
             _ownedProcessGeneration = generation;
             _pendingProcessExit = null;
             _ownedLaunchStartedAt = DateTimeOffset.UtcNow;
-            _ownedLaunchUsesNpx = string.Equals(
-                Path.GetFileName(options.ExecutablePath),
-                "npx.cmd",
-                StringComparison.OrdinalIgnoreCase);
+            _ownedLaunchUsesNpx = IsNpxLaunch(options);
         }
     }
+
+    private static bool IsNpxLaunch(DshLaunchOptions options) => string.Equals(
+        Path.GetFileName(options.ExecutablePath),
+        "npx.cmd",
+        StringComparison.OrdinalIgnoreCase);
+
+    private static string FormatStartupTimeout(TimeSpan timeout) =>
+        timeout.TotalSeconds >= 60 && timeout.TotalSeconds % 60 == 0
+            ? $"{timeout.TotalMinutes:0} 分钟"
+            : $"{Math.Ceiling(timeout.TotalSeconds):0} 秒";
 
     private void UntrackOwnedProcess()
     {

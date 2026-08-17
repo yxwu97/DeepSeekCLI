@@ -22,6 +22,7 @@ public sealed class HarnessStateMachineTests
             (HarnessRuntimeState.Starting, HarnessStateEvent.PreflightExternalRedirect),
             (HarnessRuntimeState.Starting, HarnessStateEvent.PreflightInvalidUri),
             (HarnessRuntimeState.Starting, HarnessStateEvent.PreflightUnreachable),
+            (HarnessRuntimeState.Starting, HarnessStateEvent.ProcessStarted),
             (HarnessRuntimeState.Starting, HarnessStateEvent.HealthReady),
             (HarnessRuntimeState.Starting, HarnessStateEvent.Stop),
             (HarnessRuntimeState.Starting, HarnessStateEvent.Cancel),

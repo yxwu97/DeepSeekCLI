@@ -3,13 +3,15 @@ using CommunityToolkit.Mvvm.Input;
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services;
 using DeepSeekHarnessDesktop.Services.Abstractions;
+using DeepSeekHarnessDesktop.Utilities;
 using System.Collections.ObjectModel;
 
 namespace DeepSeekHarnessDesktop.ViewModels;
 
 public sealed partial class InstallationGuideViewModel : ObservableObject, IDisposable
 {
-    public const string ManualInstallCommandText = "npx @deepseek-ai/dsh web";
+    public const string ManualInstallCommandText =
+        "npx " + DshPackageMetadata.ValidatedPackageSpec + " web";
     private static readonly TimeSpan TimerInterval = TimeSpan.FromSeconds(1);
     private readonly IDependencyDiagnosticsService _diagnosticsService;
     private readonly IHarnessLifecycleCoordinator _coordinator;
@@ -101,7 +103,7 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
     public string NpxStatusText => FormatCheck(Diagnostics.Npx);
     public string DshStatusText => HasGlobalDsh
         ? $"全局可用 · {Diagnostics.GlobalDsh.Version ?? "版本未知"}"
-        : "npx 自动获取 npm 当前版本";
+        : $"npx 自动准备已验证版本 · {DshPackageMetadata.ValidatedVersion}";
     public string ManualInstallCommand => ManualInstallCommandText;
 
     public void Activate()
@@ -174,7 +176,7 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
         BeginTiming(HasGlobalDsh ? "启动全局 DSH" : "准备 npm 包");
         StageMessage = HasGlobalDsh
             ? "正在启动全局 DSH..."
-            : $"正在通过 npx 准备 npm 当前发布的 DSH，最长等待 {TimeoutText}...";
+            : $"正在通过 npx 准备已验证的 DSH {DshPackageMetadata.ValidatedVersion}，最长等待 {TimeoutText}...";
         LogPreparation();
         try
         {
@@ -251,7 +253,9 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
     private void LogPreparation()
     {
         LogDiagnostics("开始准备");
-        var command = HasGlobalDsh ? "dsh web" : "npx -y @deepseek-ai/dsh web";
+        var command = HasGlobalDsh
+            ? "dsh web"
+            : $"npx -y {DshPackageMetadata.ValidatedPackageSpec} web";
         _logBuffer.AddDesktop(
             $"计划命令：{command}；工作目录：{_settings.WorkspacePath}；"
             + $"目标地址：{_settings.ServiceUri}；最长等待：{TimeoutText}。");
