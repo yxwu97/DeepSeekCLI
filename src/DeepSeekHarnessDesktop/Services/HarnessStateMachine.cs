@@ -29,10 +29,12 @@ public sealed class HarnessStateMachine
             [(HarnessRuntimeState.RunningOwned, HarnessStateEvent.Restart)] = HarnessRuntimeState.Restarting,
             [(HarnessRuntimeState.RunningOwned, HarnessStateEvent.ProcessExited)] = HarnessRuntimeState.Failed,
             [(HarnessRuntimeState.RunningExternal, HarnessStateEvent.HealthLost)] = HarnessRuntimeState.Stopped,
+            [(HarnessRuntimeState.RunningExternal, HarnessStateEvent.ExternalAddressChanged)] = HarnessRuntimeState.RunningExternal,
             [(HarnessRuntimeState.Stopping, HarnessStateEvent.ProcessExited)] = HarnessRuntimeState.Stopped,
             [(HarnessRuntimeState.Restarting, HarnessStateEvent.OldProcessExited)] = HarnessRuntimeState.Restarting,
             [(HarnessRuntimeState.Restarting, HarnessStateEvent.OldEndpointReleased)] = HarnessRuntimeState.Starting,
             [(HarnessRuntimeState.Restarting, HarnessStateEvent.Error)] = HarnessRuntimeState.Failed,
+            [(HarnessRuntimeState.Restarting, HarnessStateEvent.Cancel)] = HarnessRuntimeState.Stopping,
             [(HarnessRuntimeState.Failed, HarnessStateEvent.Retry)] = HarnessRuntimeState.Starting,
             [(HarnessRuntimeState.Failed, HarnessStateEvent.Dismiss)] = HarnessRuntimeState.Stopped,
         };

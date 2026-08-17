@@ -36,6 +36,20 @@ public sealed class CommandAndOutputTests : IDisposable
         Assert.Equal(["-y", "@deepseek-ai/dsh@0.1.0-rc.6", "web"], options.Arguments);
     }
 
+    [Theory]
+    [InlineData("dsh.cmd", 43123, "web,--port,43123")]
+    [InlineData("npx.cmd", 65535, "-y,@deepseek-ai/dsh@0.1.0-rc.6,web,--port,65535")]
+    public async Task ResolverAddsOnlyValidatedNonDefaultPort(string command, int port, string expected)
+    {
+        CreateFile(command);
+        var resolver = new DshCommandResolver(name => name == "PATH" ? _temporaryDirectory : null);
+        var settings = CreateSettings() with { ServiceUri = new Uri($"http://127.0.0.1:{port}/") };
+
+        var options = await resolver.ResolveAsync(settings, CancellationToken.None);
+
+        Assert.Equal(expected.Split(','), options.Arguments);
+    }
+
     [Fact]
     public async Task ResolverRejectsCustomCmdFile()
     {
@@ -78,8 +92,26 @@ public sealed class CommandAndOutputTests : IDisposable
     }
 
     [Theory]
+    [InlineData("0")]
+    [InlineData("65536")]
+    [InlineData("abc")]
+    [InlineData("3080&whoami")]
+    [InlineData("3080|")]
+    [InlineData("3080^")]
+    [InlineData("3080%PATH%")]
+    [InlineData("3080!")]
+    [InlineData("(3080)")]
+    public void CmdBuilderRejectsInvalidPortTemplate(string port)
+    {
+        var script = CreateFile("dsh.cmd");
+
+        Assert.Throws<ArgumentException>(() => CmdCommandLineBuilder.Build(
+            script, ["web", "--port", port], _temporaryDirectory, new Dictionary<string, string>()));
+    }
+
+    [Theory]
     [InlineData("\u001b[32mdsh web: http://127.0.0.1:3080/\u001b[0m", "http://127.0.0.1:3080/")]
-    [InlineData("ready at http://localhost:12345/path.", "http://localhost:12345/path")]
+    [InlineData("ready at http://localhost:12345/path.", "http://localhost:12345/")]
     [InlineData("ready (http://[::1]:8080/).", "http://[::1]:8080/")]
     [InlineData("https://example.com:3080/", null)]
     [InlineData("http://127.0.0.1:99999/", null)]

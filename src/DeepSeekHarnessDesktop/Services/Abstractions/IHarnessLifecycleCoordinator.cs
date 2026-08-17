@@ -10,4 +10,5 @@ public interface IHarnessLifecycleCoordinator : IAsyncDisposable
     Task StartAsync(CancellationToken cancellationToken);
     Task StopAsync(CancellationToken cancellationToken);
     Task RestartAsync(CancellationToken cancellationToken);
+    Task ApplyServiceUriAsync(Uri serviceUri, CancellationToken cancellationToken);
 }

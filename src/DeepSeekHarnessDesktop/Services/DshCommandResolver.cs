@@ -1,5 +1,7 @@
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services.Abstractions;
+using DeepSeekHarnessDesktop.Utilities;
+using System.Globalization;
 using System.Reflection;
 
 namespace DeepSeekHarnessDesktop.Services;
@@ -29,8 +31,8 @@ public sealed class DshCommandResolver : IDshCommandResolver
         IReadOnlyList<string> arguments = settings.Launch.Mode == LaunchMode.Custom
             ? settings.Launch.Arguments
             : string.Equals(Path.GetFileName(executable), "dsh.cmd", StringComparison.OrdinalIgnoreCase)
-                ? ["web"]
-                : ["-y", "@deepseek-ai/dsh@0.1.0-rc.6", "web"];
+                ? BuildDshArguments(settings.ServiceUri)
+                : BuildNpxArguments(settings.ServiceUri);
 
         return Task.FromResult(new DshLaunchOptions
         {
@@ -45,6 +47,35 @@ public sealed class DshCommandResolver : IDshCommandResolver
                 ["DSH_DESKTOP_VERSION"] = GetDesktopVersion(),
             },
         });
+    }
+
+    private static IReadOnlyList<string> BuildDshArguments(Uri serviceUri)
+    {
+        var arguments = new List<string> { "web" };
+        AppendPortIfNeeded(arguments, serviceUri);
+        return arguments;
+    }
+
+    private static IReadOnlyList<string> BuildNpxArguments(Uri serviceUri)
+    {
+        var arguments = new List<string>
+        {
+            "-y",
+            $"{DshPackageMetadata.PackageName}@{DshPackageMetadata.VerifiedVersion}",
+            "web",
+        };
+        AppendPortIfNeeded(arguments, serviceUri);
+        return arguments;
+    }
+
+    private static void AppendPortIfNeeded(List<string> arguments, Uri serviceUri)
+    {
+        var normalized = ServiceUriValidator.NormalizeOrThrow(serviceUri);
+        if (normalized.Port != DshPackageMetadata.DefaultPort)
+        {
+            arguments.Add("--port");
+            arguments.Add(normalized.Port.ToString(CultureInfo.InvariantCulture));
+        }
     }
 
     private static string GetDesktopVersion() =>

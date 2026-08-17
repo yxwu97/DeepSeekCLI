@@ -186,6 +186,129 @@ public sealed class HarnessLifecycleCoordinatorTests
         await fixture.DisposeAsync();
     }
 
+    [Fact]
+    public async Task StoppedServiceAddressApplyPersistsWithoutStartingProcess()
+    {
+        var process = new FakeProcessManager();
+        var health = new FakeHealthMonitor();
+        var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = false };
+        var store = new FakeSettingsService();
+        var coordinator = new HarnessLifecycleCoordinator(
+            new HarnessStateMachine(), new FakeResolver(settings), process, health, settings, settingsService: store);
+        await coordinator.InitializeAsync(CancellationToken.None);
+        var target = new Uri("http://127.0.0.1:43130/");
+
+        await coordinator.ApplyServiceUriAsync(target, CancellationToken.None);
+
+        Assert.Equal(target, settings.ServiceUri);
+        Assert.Equal(target, store.SavedUri);
+        Assert.Equal(0, process.StartCount);
+        await coordinator.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ExternalAddressSwitchConfirmsBeforeSavingAndReplacingWatcher()
+    {
+        var process = new FakeProcessManager();
+        var health = new FakeHealthMonitor();
+        health.EnqueueProbe(HealthProbeStatus.DshConfirmed);
+        var watcher = new RecordingRuntimeWatcher();
+        var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = false };
+        var store = new FakeSettingsService();
+        var coordinator = new HarnessLifecycleCoordinator(
+            new HarnessStateMachine(), new FakeResolver(settings), process, health, settings, watcher, store);
+        await coordinator.InitializeAsync(CancellationToken.None);
+        var target = new Uri("http://127.0.0.1:43131/");
+        health.EnqueueProbe(HealthProbeStatus.DshConfirmed);
+
+        await coordinator.ApplyServiceUriAsync(target, CancellationToken.None);
+
+        Assert.Equal(HarnessRuntimeState.RunningExternal, coordinator.Current.State);
+        Assert.Equal(target, coordinator.Current.ServiceUri);
+        Assert.Equal(target, store.SavedUri);
+        Assert.Equal(2, watcher.CallCount);
+        await coordinator.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task FailedExternalAddressSwitchKeepsOriginalSettingsAndWatcher()
+    {
+        var process = new FakeProcessManager();
+        var health = new FakeHealthMonitor();
+        health.EnqueueProbe(HealthProbeStatus.DshConfirmed);
+        var watcher = new RecordingRuntimeWatcher();
+        var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = false };
+        var original = settings.ServiceUri;
+        var store = new FakeSettingsService();
+        var coordinator = new HarnessLifecycleCoordinator(
+            new HarnessStateMachine(), new FakeResolver(settings), process, health, settings, watcher, store);
+        await coordinator.InitializeAsync(CancellationToken.None);
+        health.EnqueueProbe(HealthProbeStatus.ReachableUnknown);
+
+        var exception = await Assert.ThrowsAsync<HarnessException>(() => coordinator.ApplyServiceUriAsync(
+            new Uri("http://127.0.0.1:43132/"), CancellationToken.None));
+
+        Assert.Equal("DSH-E205", exception.Error.Code);
+        Assert.Equal(original, settings.ServiceUri);
+        Assert.Equal(original, coordinator.Current.ServiceUri);
+        Assert.Equal(0, store.SaveCount);
+        Assert.Equal(2, watcher.CallCount);
+        await coordinator.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task OwnedAddressApplySavesThenUsesSerializedRestart()
+    {
+        var process = new FakeProcessManager();
+        var health = new FakeHealthMonitor();
+        var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = false };
+        var store = new FakeSettingsService();
+        var coordinator = new HarnessLifecycleCoordinator(
+            new HarnessStateMachine(), new FakeResolver(settings), process, health, settings, settingsService: store);
+        await coordinator.InitializeAsync(CancellationToken.None);
+        health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        health.ReadyResult = Confirmed();
+        await coordinator.StartAsync(CancellationToken.None);
+        var target = new Uri("http://127.0.0.1:43133/");
+        health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        health.ReadyResult = Confirmed(target);
+
+        await coordinator.ApplyServiceUriAsync(target, CancellationToken.None);
+
+        Assert.Equal(HarnessRuntimeState.RunningOwned, coordinator.Current.State);
+        Assert.Equal(target, coordinator.Current.ServiceUri);
+        Assert.Equal(target, store.SavedUri);
+        Assert.Equal(2, process.StartCount);
+        Assert.Equal(1, process.StopCount);
+        await coordinator.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task CancellingOwnedAddressApplyDoesNotLeaveRestartingState()
+    {
+        var process = new FakeProcessManager();
+        var health = new FakeHealthMonitor();
+        var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = false };
+        var coordinator = new HarnessLifecycleCoordinator(
+            new HarnessStateMachine(), new FakeResolver(settings), process, health, settings, settingsService: new FakeSettingsService());
+        await coordinator.InitializeAsync(CancellationToken.None);
+        health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        health.ReadyResult = Confirmed();
+        await coordinator.StartAsync(CancellationToken.None);
+        health.BlockProbeUntilCancelled = true;
+        using var cancellation = new CancellationTokenSource();
+
+        var apply = coordinator.ApplyServiceUriAsync(new Uri("http://127.0.0.1:43134/"), cancellation.Token);
+        await health.ProbeStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => apply);
+        Assert.Equal(HarnessRuntimeState.Stopped, coordinator.Current.State);
+        Assert.False(coordinator.Current.IsOwned);
+        await coordinator.DisposeAsync();
+    }
+
     private static async Task<Fixture> CreateFixtureAsync()
     {
         var process = new FakeProcessManager();
@@ -287,14 +410,21 @@ public sealed class HarnessLifecycleCoordinatorTests
         public TaskCompletionSource? ReadyGate { get; set; }
         public bool BlockReadyUntilCancelled { get; set; }
         public bool IgnoreCancellation { get; set; }
+        public bool BlockProbeUntilCancelled { get; set; }
+        public TaskCompletionSource ProbeStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public void EnqueueProbe(HealthProbeStatus status) => _probes.Enqueue(status);
 
-        public Task<HealthProbeResult> ProbeAsync(Uri uri, TimeSpan timeout, CancellationToken cancellationToken)
+        public async Task<HealthProbeResult> ProbeAsync(Uri uri, TimeSpan timeout, CancellationToken cancellationToken)
         {
             ProbeCount++;
+            if (BlockProbeUntilCancelled)
+            {
+                ProbeStarted.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
             var status = _probes.Count > 0 ? _probes.Dequeue() : HealthProbeStatus.Unreachable;
-            return Task.FromResult(new HealthProbeResult(status, uri, status == HealthProbeStatus.DshConfirmed ? uri : null));
+            return new HealthProbeResult(status, uri, status == HealthProbeStatus.DshConfirmed ? uri : null);
         }
 
         public async Task<HealthProbeResult> WaitUntilReadyAsync(
@@ -341,6 +471,33 @@ public sealed class HarnessLifecycleCoordinatorTests
             _result.TrySetResult(new RuntimeHealthLost(
                 _generation,
                 new HealthProbeResult(HealthProbeStatus.Unreachable, uri)));
+        }
+    }
+
+    private sealed class RecordingRuntimeWatcher : IRuntimeHealthWatcher
+    {
+        public int CallCount { get; private set; }
+
+        public async Task<RuntimeHealthLost?> WatchAsync(Uri uri, long generation, CancellationToken cancellationToken)
+        {
+            CallCount++;
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return null;
+        }
+    }
+
+    private sealed class FakeSettingsService : ISettingsService
+    {
+        public int SaveCount { get; private set; }
+        public Uri? SavedUri { get; private set; }
+
+        public Task<AppSettings> LoadAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task SaveAsync(AppSettings settings, CancellationToken cancellationToken)
+        {
+            SaveCount++;
+            SavedUri = settings.ServiceUri;
+            return Task.CompletedTask;
         }
     }
 }

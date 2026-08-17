@@ -18,6 +18,7 @@ $Version = $configuredVersion
 $solution = Join-Path $repositoryRoot 'DeepSeekHarnessDesktop.sln'
 $unitTestProject = Join-Path $repositoryRoot 'tests\DeepSeekHarnessDesktop.UnitTests\DeepSeekHarnessDesktop.UnitTests.csproj'
 $integrationTestProject = Join-Path $repositoryRoot 'tests\DeepSeekHarnessDesktop.IntegrationTests\DeepSeekHarnessDesktop.IntegrationTests.csproj'
+$webViewValidationAssembly = Join-Path $repositoryRoot 'eng\Phase0Validation\bin\Release\net8.0-windows\win-x64\DeepSeekHarnessDesktop.Phase0Validation.dll'
 $publishScript = Join-Path $PSScriptRoot 'Publish-Release.ps1'
 $outputDirectory = Join-Path $repositoryRoot 'output'
 $publishDirectory = Join-Path $outputDirectory "publish\$Version\$Runtime"
@@ -77,6 +78,10 @@ Write-Host 'Running integration tests...'
 Assert-LastExitCode 'Integration tests'
 $integrationSummary = Read-TestSummary $integrationResultsPath
 
+Write-Host 'Running interactive WebView2 validation...'
+& dotnet $webViewValidationAssembly --chat-webview-smoke
+Assert-LastExitCode 'Interactive WebView2 validation'
+
 Write-Host 'Publishing release archive...'
 & $publishScript -Configuration $Configuration -Runtime $Runtime
 Assert-LastExitCode 'Release publish'
@@ -125,6 +130,7 @@ $report = [ordered]@{
     tests = [ordered]@{
         unit = $unitSummary
         integration = $integrationSummary
+        webViewInteractive = 'passed'
     }
     artifact = [ordered]@{
         path = $zip.FullName
@@ -140,6 +146,9 @@ $report = [ordered]@{
         'Windows 11 x64 at 125% DPI',
         'Windows 11 x64 at 150% DPI',
         'Clean environments without Node.js, npm cache, or WebView2 Runtime'
+        'Official DeepSeek Chat login, verification-code, session persistence, logout, and cross-origin flow'
+        'Native password prompt acceptance, rejection, and enterprise-policy-disabled behavior'
+        'Windows 11 x64 at 200% DPI and 820x600 minimum window size'
     )
 }
 

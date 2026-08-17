@@ -3,9 +3,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="关于 DeepSeek Harness Desktop"
         Width="520"
-        Height="390"
+        Height="560"
         MinWidth="460"
-        MinHeight="340"
+        MinHeight="500"
         ResizeMode="CanResizeWithGrip"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource CanvasBrush}">
@@ -13,17 +13,19 @@
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
     <TextBlock FontSize="22" FontWeight="SemiBold" Text="DeepSeek Harness Desktop" />
-    <TextBlock Grid.Row="1" Margin="0,5,0,18" Foreground="{StaticResource MutedTextBrush}" Text="Windows x64 · MVP" />
+    <TextBlock Grid.Row="1" Margin="0,5,0,18" Foreground="{StaticResource MutedTextBrush}" Text="Windows x64" />
     <Grid Grid.Row="2">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="150" />
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
       <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
@@ -43,7 +45,30 @@
       <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding NpxPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding NpxPath}" />
       <TextBlock Grid.Row="5" Text="DSH 固定版本" />
       <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding DshVersion}" />
+      <TextBlock Grid.Row="6" Text="全局 DSH" />
+      <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding DshPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DshPath}" />
     </Grid>
-    <Button Grid.Row="3" Width="86" HorizontalAlignment="Right" Content="关闭" IsCancel="True" AutomationProperties.Name="关闭关于窗口" />
+    <Border Grid.Row="3" Margin="0,18,0,14" Padding="12" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#FAFAFA">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="140" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <TextBlock Text="npm latest" />
+        <TextBlock Grid.Column="1" Text="{Binding LatestVersion}" />
+        <TextBlock Grid.Row="1" Text="检查时间" />
+        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CheckedAt}" />
+        <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Margin="0,8,0,0" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" Text="{Binding UpdateStatus}" />
+      </Grid>
+    </Border>
+    <Grid Grid.Row="4">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+      <StackPanel Orientation="Horizontal">
+        <Button Command="{Binding RefreshDiagnosticsCommand}" Content="重新诊断" />
+        <Button Command="{Binding CheckUpdateCommand}" Content="检查更新" />
+        <Button Command="{Binding OpenDocumentationCommand}" Content="官方文档" />
+        <Button Command="{Binding OpenNpmPackageCommand}" Content="npm" />
+        <Button Command="{Binding CancelCommand}" Content="取消" />
+      </StackPanel>
+      <Button Grid.Column="1" Width="76" Content="关闭" IsCancel="True" AutomationProperties.Name="关闭关于窗口" />
+    </Grid>
   </Grid>
 </Window>

@@ -1,3 +1,4 @@
+using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services;
 
 namespace DeepSeekHarnessDesktop.UnitTests;
@@ -35,6 +36,25 @@ public sealed class DependencyDiagnosticsServiceTests
 
         Assert.Contains(result.Errors, error => error.Code == "WEB-E301");
         Assert.Contains(result.Errors, error => error.Code == "DSH-E101");
+    }
+
+    [Fact]
+    public async Task GlobalDshIsSufficientWithoutNodeOrNpx()
+    {
+        using var directory = new TemporaryDirectory();
+        var dsh = Path.Combine(directory.Path, "dsh.cmd");
+        File.WriteAllText(dsh, string.Empty);
+        var service = new DependencyDiagnosticsService(
+            name => name == "PATH" ? directory.Path : null,
+            () => "140.0.3485.54",
+            (_, _) => Task.FromResult<string?>("0.1.0-rc.6"));
+
+        var result = await service.DiagnoseAsync(CancellationToken.None);
+
+        Assert.True(result.CanLaunchDsh);
+        Assert.Equal(DependencyStatus.Available, result.GlobalDsh.Status);
+        Assert.Equal(DependencyStatus.Missing, result.Node.Status);
+        Assert.DoesNotContain(result.Errors, error => error.Code == "DSH-E101");
     }
 
     private sealed class TemporaryDirectory : IDisposable

@@ -4,7 +4,7 @@ public sealed record AppSettings
 {
     public int SchemaVersion { get; init; } = 1;
     public string WorkspacePath { get; set; } = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-    public Uri ServiceUri { get; set; } = new("http://127.0.0.1:3080/");
+    public Uri ServiceUri { get; set; } = Utilities.DshPackageMetadata.DefaultServiceUri;
     public bool AutoStart { get; set; } = true;
     public int StartupTimeoutSeconds { get; set; } = 60;
     public LaunchSettings Launch { get; set; } = new();

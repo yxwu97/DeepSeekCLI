@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:models="clr-namespace:DeepSeekHarnessDesktop.Models"
         xmlns:states="clr-namespace:DeepSeekHarnessDesktop.Views.States"
+        xmlns:views="clr-namespace:DeepSeekHarnessDesktop.Views"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="DeepSeek Harness Desktop"
         Width="1280"
@@ -12,20 +13,58 @@
         Background="{StaticResource CanvasBrush}">
   <Grid>
     <Grid.RowDefinitions>
-      <RowDefinition Height="52" />
+      <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
       <RowDefinition Height="26" />
     </Grid.RowDefinitions>
 
     <Border x:Name="CommandBar" Grid.Row="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" PreviewKeyDown="OnShortcutKeyDown">
       <Grid Margin="12,8">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="*" />
           <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
-        <TextBlock VerticalAlignment="Center" Margin="0,0,10,0" FontWeight="SemiBold" Text="工作目录" />
-        <DockPanel Grid.Column="1" Margin="0,1,14,1">
+        <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="5" Margin="0,0,14,0">
+          <StackPanel Orientation="Horizontal">
+            <Button Width="58" Margin="0" BorderThickness="0" Command="{Binding SwitchToCodeCommand}" Content="Code"
+                    ToolTip="切换到 Code" AutomationProperties.Name="切换到 Code 模式">
+              <Button.Style>
+                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsCodeMode}" Value="True">
+                      <Setter Property="Background" Value="#E7F3EF" />
+                      <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                      <Setter Property="FontWeight" Value="SemiBold" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </Button.Style>
+            </Button>
+            <Button Width="58" Margin="0" BorderThickness="1,0,0,0" Command="{Binding SwitchToChatCommand}" Content="Chat"
+                    ToolTip="切换到 Chat" AutomationProperties.Name="切换到 Chat 模式">
+              <Button.Style>
+                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsChatMode}" Value="True">
+                      <Setter Property="Background" Value="#E7F3EF" />
+                      <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                      <Setter Property="FontWeight" Value="SemiBold" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </Button.Style>
+            </Button>
+          </StackPanel>
+        </Border>
+        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,7,10,0" FontWeight="SemiBold" Text="工作目录"
+                   Visibility="{Binding IsCodeMode, Converter={StaticResource BooleanToVisibilityConverter}}" />
+        <DockPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,7,0,0"
+                   Visibility="{Binding IsCodeMode, Converter={StaticResource BooleanToVisibilityConverter}}">
           <Button DockPanel.Dock="Right"
                   Style="{StaticResource ToolbarIconButtonStyle}"
                   Margin="5,0,0,0"
@@ -41,11 +80,13 @@
                    ToolTip="{Binding WorkspacePath}" />
         </DockPanel>
         <StackPanel Grid.Column="2" Orientation="Horizontal">
-          <Button Style="{StaticResource ToolbarIconButtonStyle}" Command="{Binding StartCommand}" Content="&#xE768;" ToolTip="启动 DSH" AutomationProperties.Name="启动 DSH" />
-          <Button Style="{StaticResource ToolbarIconButtonStyle}" Command="{Binding StopCommand}" Content="&#xE71A;" ToolTip="停止 DSH" AutomationProperties.Name="停止 DSH" />
-          <Button Style="{StaticResource ToolbarIconButtonStyle}" Command="{Binding RestartCommand}" Content="&#xE8EE;" ToolTip="重启 DSH" AutomationProperties.Name="重启 DSH" />
+          <Button Style="{StaticResource ToolbarIconButtonStyle}" Command="{Binding StartCommand}" Content="&#xE768;" ToolTip="启动 DSH" AutomationProperties.Name="启动 DSH" Visibility="{Binding IsCodeMode, Converter={StaticResource BooleanToVisibilityConverter}}" />
+          <Button Style="{StaticResource ToolbarIconButtonStyle}" Command="{Binding StopCommand}" Content="&#xE71A;" ToolTip="停止 DSH" AutomationProperties.Name="停止 DSH" Visibility="{Binding IsCodeMode, Converter={StaticResource BooleanToVisibilityConverter}}" />
+          <Button Style="{StaticResource ToolbarIconButtonStyle}" Command="{Binding RestartCommand}" Content="&#xE8EE;" ToolTip="重启 DSH" AutomationProperties.Name="重启 DSH" Visibility="{Binding IsCodeMode, Converter={StaticResource BooleanToVisibilityConverter}}" />
           <Border Width="1" Height="20" Margin="6,6" Background="{StaticResource BorderBrush}" />
           <Button Style="{StaticResource ToolbarIconButtonStyle}" Command="{Binding ReloadPageCommand}" Content="&#xE72C;" ToolTip="刷新页面" AutomationProperties.Name="刷新页面" />
+          <Button Style="{StaticResource ToolbarIconButtonStyle}" Command="{Binding ClearChatDataCommand}" Content="&#xE74D;" ToolTip="清除 Chat 登录信息" AutomationProperties.Name="清除 Chat 登录信息" Visibility="{Binding IsChatMode, Converter={StaticResource BooleanToVisibilityConverter}}" />
+          <Button Style="{StaticResource ToolbarIconButtonStyle}" Click="OnSettingsClick" Content="&#xE713;" ToolTip="服务设置" AutomationProperties.Name="打开服务设置" Visibility="{Binding IsCodeMode, Converter={StaticResource BooleanToVisibilityConverter}}" />
           <Button Style="{StaticResource ToolbarIconButtonStyle}" Click="OnAccountClick" Content="&#xE77B;" ToolTip="DeepSeek 账号" AutomationProperties.Name="查看 DeepSeek 账号" />
           <Button Style="{StaticResource ToolbarIconButtonStyle}" Command="{Binding OpenLogsCommand}" Content="&#xE756;" ToolTip="查看日志" AutomationProperties.Name="查看日志" />
         </StackPanel>
@@ -55,54 +96,112 @@
     <Grid Grid.Row="1" Margin="20">
       <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6">
         <Grid>
-          <wv2:WebView2 x:Name="Browser" PreviewKeyDown="OnShortcutKeyDown">
-            <wv2:WebView2.Style>
-              <Style TargetType="wv2:WebView2">
+          <Grid>
+            <Grid.Style>
+              <Style TargetType="Grid">
                 <Setter Property="Visibility" Value="Collapsed" />
                 <Style.Triggers>
-                  <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                  <DataTrigger Binding="{Binding IsCodeMode}" Value="True">
                     <Setter Property="Visibility" Value="Visible" />
                   </DataTrigger>
                 </Style.Triggers>
               </Style>
-            </wv2:WebView2.Style>
-          </wv2:WebView2>
-          <ContentControl>
-            <ContentControl.Style>
-              <Style TargetType="ContentControl">
-                <Setter Property="Visibility" Value="Visible" />
-                <Setter Property="Content">
-                  <Setter.Value><states:StoppedView /></Setter.Value>
-                </Setter>
+            </Grid.Style>
+            <wv2:WebView2 x:Name="CodeBrowser" PreviewKeyDown="OnShortcutKeyDown">
+              <wv2:WebView2.Style>
+                <Style TargetType="wv2:WebView2">
+                  <Setter Property="Visibility" Value="Collapsed" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsCodeWebViewVisible}" Value="True">
+                      <Setter Property="Visibility" Value="Visible" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </wv2:WebView2.Style>
+            </wv2:WebView2>
+            <ContentControl>
+              <ContentControl.Style>
+                <Style TargetType="ContentControl">
+                  <Setter Property="Visibility" Value="Visible" />
+                  <Setter Property="Content"><Setter.Value><states:StoppedView /></Setter.Value></Setter>
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsCodeWebViewVisible}" Value="True">
+                      <Setter Property="Visibility" Value="Collapsed" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.Initializing}">
+                      <Setter Property="Content"><Setter.Value><states:StartingView /></Setter.Value></Setter>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.Starting}">
+                      <Setter Property="Content"><Setter.Value><states:StartingView /></Setter.Value></Setter>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.Stopping}">
+                      <Setter Property="Content"><Setter.Value><states:StartingView /></Setter.Value></Setter>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.Restarting}">
+                      <Setter Property="Content"><Setter.Value><states:StartingView /></Setter.Value></Setter>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.Failed}">
+                      <Setter Property="Content"><Setter.Value><states:FailedView /></Setter.Value></Setter>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.RunningOwned}">
+                      <Setter Property="Content"><Setter.Value><states:RunningPlaceholderView /></Setter.Value></Setter>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.RunningExternal}">
+                      <Setter Property="Content"><Setter.Value><states:RunningPlaceholderView /></Setter.Value></Setter>
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </ContentControl.Style>
+            </ContentControl>
+            <Grid Visibility="{Binding IsInstallationGuideActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+              <views:InstallationGuideView DataContext="{Binding InstallationGuide}" />
+            </Grid>
+          </Grid>
+
+          <Grid>
+            <Grid.Style>
+              <Style TargetType="Grid">
+                <Setter Property="Visibility" Value="Collapsed" />
                 <Style.Triggers>
-                  <DataTrigger Binding="{Binding IsRunning}" Value="True">
-                    <Setter Property="Visibility" Value="Collapsed" />
-                  </DataTrigger>
-                  <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.Initializing}">
-                    <Setter Property="Content"><Setter.Value><states:StartingView /></Setter.Value></Setter>
-                  </DataTrigger>
-                  <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.Starting}">
-                    <Setter Property="Content"><Setter.Value><states:StartingView /></Setter.Value></Setter>
-                  </DataTrigger>
-                  <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.Stopping}">
-                    <Setter Property="Content"><Setter.Value><states:StartingView /></Setter.Value></Setter>
-                  </DataTrigger>
-                  <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.Restarting}">
-                    <Setter Property="Content"><Setter.Value><states:StartingView /></Setter.Value></Setter>
-                  </DataTrigger>
-                  <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.Failed}">
-                    <Setter Property="Content"><Setter.Value><states:FailedView /></Setter.Value></Setter>
-                  </DataTrigger>
-                  <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.RunningOwned}">
-                    <Setter Property="Content"><Setter.Value><states:RunningPlaceholderView /></Setter.Value></Setter>
-                  </DataTrigger>
-                  <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.RunningExternal}">
-                    <Setter Property="Content"><Setter.Value><states:RunningPlaceholderView /></Setter.Value></Setter>
+                  <DataTrigger Binding="{Binding IsChatMode}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
                   </DataTrigger>
                 </Style.Triggers>
               </Style>
-            </ContentControl.Style>
-          </ContentControl>
+            </Grid.Style>
+            <wv2:WebView2 x:Name="ChatBrowser" PreviewKeyDown="OnShortcutKeyDown">
+              <wv2:WebView2.Style>
+                <Style TargetType="wv2:WebView2">
+                  <Setter Property="Visibility" Value="Collapsed" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsChatWebViewVisible}" Value="True">
+                      <Setter Property="Visibility" Value="Visible" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </wv2:WebView2.Style>
+            </wv2:WebView2>
+            <Grid>
+              <Grid.Style>
+                <Style TargetType="Grid">
+                  <Setter Property="Visibility" Value="Visible" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsChatWebViewVisible}" Value="True">
+                      <Setter Property="Visibility" Value="Collapsed" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </Grid.Style>
+              <StackPanel Width="420" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock FontSize="19" FontWeight="SemiBold" Text="{Binding StatusTitle}" TextAlignment="Center" TextWrapping="Wrap" />
+                <TextBlock Margin="0,9,0,16" Foreground="{StaticResource MutedTextBrush}" Text="{Binding StatusDetail}" TextAlignment="Center" TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                  <Button Command="{Binding RetryChatCommand}" Content="重试" />
+                  <Button Command="{Binding ClearChatDataCommand}" Content="清除登录信息" />
+                </StackPanel>
+              </StackPanel>
+            </Grid>
+          </Grid>
         </Grid>
       </Border>
     </Grid>

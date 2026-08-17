@@ -5,12 +5,15 @@
     <StackPanel Width="520" HorizontalAlignment="Center" VerticalAlignment="Center">
       <TextBlock HorizontalAlignment="Center" FontSize="24" FontWeight="SemiBold" Foreground="#B42318" Text="{Binding StatusTitle}" />
       <TextBlock Margin="0,12,0,24" HorizontalAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" Text="{Binding StatusDetail}" />
-      <Button HorizontalAlignment="Center" Style="{StaticResource PrimaryButtonStyle}" Command="{Binding StartCommand}" AutomationProperties.Name="重试启动 DSH">
-        <StackPanel Orientation="Horizontal">
-          <TextBlock Margin="0,0,8,0" VerticalAlignment="Center" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Text="&#xE72C;" />
-          <TextBlock VerticalAlignment="Center" Text="重试启动" />
-        </StackPanel>
-      </Button>
+      <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+        <Button Command="{Binding OpenInstallationGuideCommand}" Content="安装引导" />
+        <Button Style="{StaticResource PrimaryButtonStyle}" Command="{Binding StartCommand}" AutomationProperties.Name="重试启动 DSH">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Margin="0,0,8,0" VerticalAlignment="Center" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Text="&#xE72C;" />
+            <TextBlock VerticalAlignment="Center" Text="重试启动" />
+          </StackPanel>
+        </Button>
+      </StackPanel>
     </StackPanel>
   </Grid>
 </UserControl>

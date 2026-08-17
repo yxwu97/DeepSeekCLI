@@ -11,23 +11,28 @@ public partial class MainWindow : System.Windows.Window
 {
     private readonly MainWindowViewModel _viewModel;
     private readonly AppSettings _settings;
-    private readonly DependencyDiagnosticsResult _diagnostics;
+    private readonly AboutViewModel _aboutViewModel;
     private readonly AccountViewModel _accountViewModel;
+    private readonly SettingsViewModel _settingsViewModel;
 
     public MainWindow(
         MainWindowViewModel viewModel,
-        WebViewNavigationService navigation,
+        CodeWebViewService codeWebView,
+        ChatWebViewService chatWebView,
         AppSettings settings,
-        DependencyDiagnosticsResult diagnostics,
-        AccountViewModel accountViewModel)
+        AccountViewModel accountViewModel,
+        SettingsViewModel settingsViewModel,
+        AboutViewModel aboutViewModel)
     {
         InitializeComponent();
         _viewModel = viewModel;
         _settings = settings;
-        _diagnostics = diagnostics;
         _accountViewModel = accountViewModel;
+        _settingsViewModel = settingsViewModel;
+        _aboutViewModel = aboutViewModel;
         DataContext = viewModel;
-        navigation.Attach(Browser);
+        codeWebView.Attach(CodeBrowser);
+        chatWebView.Attach(ChatBrowser);
         viewModel.OpenLogsRequested += OnOpenLogsRequested;
         ApplyWindowSettings();
         Closing += CaptureWindowSettings;
@@ -38,13 +43,21 @@ public partial class MainWindow : System.Windows.Window
         new AboutWindow
         {
             Owner = this,
-            DataContext = _diagnostics,
+            DataContext = _aboutViewModel,
         }.ShowDialog();
     }
 
     private void OnAccountClick(object sender, RoutedEventArgs e)
     {
         new AccountWindow(_accountViewModel)
+        {
+            Owner = this,
+        }.ShowDialog();
+    }
+
+    private void OnSettingsClick(object sender, RoutedEventArgs e)
+    {
+        new SettingsWindow(_settingsViewModel)
         {
             Owner = this,
         }.ShowDialog();
@@ -133,13 +146,14 @@ public partial class MainWindow : System.Windows.Window
         }
         else if (e.Key == Key.F6)
         {
-            if (Browser.IsKeyboardFocusWithin)
+            var browser = _viewModel.IsChatMode ? ChatBrowser : CodeBrowser;
+            if (browser.IsKeyboardFocusWithin)
             {
                 WorkspaceTextBox.Focus();
             }
             else
             {
-                Browser.Focus();
+                browser.Focus();
             }
             e.Handled = true;
         }

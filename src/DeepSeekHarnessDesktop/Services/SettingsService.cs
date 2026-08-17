@@ -1,6 +1,7 @@
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services.Abstractions;
 using Microsoft.Extensions.Logging;
+using DeepSeekHarnessDesktop.Utilities;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -135,13 +136,11 @@ public sealed class SettingsService : ISettingsService, IDisposable
         {
             throw new InvalidDataException("Workspace path must be absolute.");
         }
-        if (!settings.ServiceUri.IsAbsoluteUri
-            || !settings.ServiceUri.IsLoopback
-            || settings.ServiceUri.Scheme is not ("http" or "https")
-            || !string.IsNullOrEmpty(settings.ServiceUri.UserInfo))
+        if (!ServiceUriValidator.TryNormalize(settings.ServiceUri, out var normalized, out var uriError))
         {
-            throw new InvalidDataException("Service URI must be an absolute loopback HTTP or HTTPS URI without user information.");
+            throw new InvalidDataException(uriError);
         }
+        settings.ServiceUri = normalized;
         if (settings.StartupTimeoutSeconds is < 5 or > 300)
         {
             throw new InvalidDataException("Startup timeout must be between 5 and 300 seconds.");

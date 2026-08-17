@@ -22,6 +22,7 @@ public enum HarnessStateEvent
     Error,
     Restart,
     HealthLost,
+    ExternalAddressChanged,
     OldProcessExited,
     OldEndpointReleased,
     Retry,

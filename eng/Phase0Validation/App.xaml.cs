@@ -16,6 +16,33 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Contains("--chat-webview-smoke", StringComparer.OrdinalIgnoreCase))
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            var chatSmokeWindow = new MainWindow();
+            MainWindow = chatSmokeWindow;
+            chatSmokeWindow.Show();
+
+            try
+            {
+                var result = await chatSmokeWindow.WaitForInitializationAsync()
+                    .WaitAsync(TimeSpan.FromSeconds(30));
+                await Console.Out.WriteLineAsync(result.Message);
+                chatSmokeWindow.Close();
+                await chatSmokeWindow.CleanupAsync();
+                Shutdown(result.Succeeded ? 0 : 1);
+            }
+            catch (Exception exception)
+            {
+                await Console.Error.WriteLineAsync($"FAIL: Chat WebView2 smoke: {exception.Message}");
+                chatSmokeWindow.Close();
+                await chatSmokeWindow.CleanupAsync();
+                Shutdown(1);
+            }
+
+            return;
+        }
+
         if (e.Args.Contains("--webview-smoke", StringComparer.OrdinalIgnoreCase))
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -34,12 +61,14 @@ public partial class App : Application
                     ? "PASS: F5 from the focused WebView2 HWND reached WPF PreviewKeyDown."
                     : "FAIL: F5 did not reach the host shortcut route.");
                 smokeWindow.Close();
+                await smokeWindow.CleanupAsync();
                 Shutdown(result.Succeeded && acceleratorRouted ? 0 : 1);
             }
             catch (Exception exception)
             {
                 await Console.Error.WriteLineAsync($"FAIL: WebView2 smoke: {exception.Message}");
                 smokeWindow.Close();
+                await smokeWindow.CleanupAsync();
                 Shutdown(1);
             }
 

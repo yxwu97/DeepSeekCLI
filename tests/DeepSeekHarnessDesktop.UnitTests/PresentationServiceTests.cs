@@ -30,7 +30,7 @@ public sealed class PresentationServiceTests
     [InlineData("https://127.0.0.1:3080/", "http://127.0.0.1:3080/", false)]
     public void WebViewOriginIncludesSchemeHostAndPort(string candidate, string allowed, bool expected)
     {
-        Assert.Equal(expected, WebViewNavigationService.IsSameOrigin(new Uri(candidate), new Uri(allowed)));
+        Assert.Equal(expected, CodeWebViewService.IsSameOrigin(new Uri(candidate), new Uri(allowed)));
     }
 
     [Fact]
@@ -109,10 +109,11 @@ public sealed class PresentationServiceTests
         public Task StartAsync(CancellationToken cancellationToken) { StartCount++; return Task.CompletedTask; }
         public Task StopAsync(CancellationToken cancellationToken) { StopCount++; return Task.CompletedTask; }
         public Task RestartAsync(CancellationToken cancellationToken) { RestartCount++; return Task.CompletedTask; }
+        public Task ApplyServiceUriAsync(Uri serviceUri, CancellationToken cancellationToken) => Task.CompletedTask;
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class FakeNavigation : IWebViewNavigationService
+    private sealed class FakeNavigation : ICodeWebViewService
     {
         public int ReloadCount { get; private set; }
         public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;

@@ -32,10 +32,12 @@ public sealed class HarnessStateMachineTests
             (HarnessRuntimeState.RunningOwned, HarnessStateEvent.Restart),
             (HarnessRuntimeState.RunningOwned, HarnessStateEvent.ProcessExited),
             (HarnessRuntimeState.RunningExternal, HarnessStateEvent.HealthLost),
+            (HarnessRuntimeState.RunningExternal, HarnessStateEvent.ExternalAddressChanged),
             (HarnessRuntimeState.Stopping, HarnessStateEvent.ProcessExited),
             (HarnessRuntimeState.Restarting, HarnessStateEvent.OldProcessExited),
             (HarnessRuntimeState.Restarting, HarnessStateEvent.OldEndpointReleased),
             (HarnessRuntimeState.Restarting, HarnessStateEvent.Error),
+            (HarnessRuntimeState.Restarting, HarnessStateEvent.Cancel),
             (HarnessRuntimeState.Failed, HarnessStateEvent.Retry),
             (HarnessRuntimeState.Failed, HarnessStateEvent.Dismiss),
         };

@@ -1,5 +1,6 @@
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services.Abstractions;
+using DeepSeekHarnessDesktop.Utilities;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
@@ -34,9 +35,10 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
-        if (!IsAllowedLoopbackUri(uri))
+        var requestedUri = uri;
+        if (!ServiceUriValidator.TryNormalize(uri, out uri, out _))
         {
-            return new HealthProbeResult(HealthProbeStatus.InvalidUri, uri, Detail: "Only loopback HTTP(S) URIs without user information are allowed.");
+            return new HealthProbeResult(HealthProbeStatus.InvalidUri, requestedUri, Detail: "Only loopback HTTP(S) origins without user information, query, or fragment are allowed.");
         }
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -79,7 +81,7 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
                         return new HealthProbeResult(HealthProbeStatus.InvalidUri, uri, current, exception.Message);
                     }
 
-                    if (!IsAllowedLoopbackUri(next))
+                    if (!ServiceUriValidator.IsAllowedLoopbackTarget(next))
                     {
                         return new HealthProbeResult(HealthProbeStatus.ExternalRedirect, uri, next, "Redirect target is outside loopback HTTP(S).");
                     }
@@ -163,12 +165,6 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
         var requested = last?.RequestedUri ?? uriProvider();
         return new HealthProbeResult(HealthProbeStatus.Unreachable, requested, Detail: "Startup timeout elapsed.");
     }
-
-    private static bool IsAllowedLoopbackUri(Uri uri) =>
-        uri.IsAbsoluteUri
-        && uri.IsLoopback
-        && uri.Scheme is "http" or "https"
-        && string.IsNullOrEmpty(uri.UserInfo);
 
     private static bool IsRedirect(HttpStatusCode statusCode) => statusCode is
         HttpStatusCode.MovedPermanently or

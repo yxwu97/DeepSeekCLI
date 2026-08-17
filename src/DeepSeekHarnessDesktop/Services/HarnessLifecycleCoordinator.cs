@@ -11,6 +11,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
     private readonly IHarnessProcessManager _processManager;
     private readonly IHarnessHealthMonitor _healthMonitor;
     private readonly IRuntimeHealthWatcher? _runtimeHealthWatcher;
+    private readonly ISettingsService? _settingsService;
     private readonly AppSettings _settings;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly object _operationSync = new();
@@ -32,7 +33,8 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         IHarnessProcessManager processManager,
         IHarnessHealthMonitor healthMonitor,
         AppSettings settings,
-        IRuntimeHealthWatcher? runtimeHealthWatcher = null)
+        IRuntimeHealthWatcher? runtimeHealthWatcher = null,
+        ISettingsService? settingsService = null)
     {
         _stateMachine = stateMachine;
         _resolver = resolver;
@@ -40,6 +42,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         _healthMonitor = healthMonitor;
         _settings = settings;
         _runtimeHealthWatcher = runtimeHealthWatcher;
+        _settingsService = settingsService;
         _processManager.OutputReceived += OnOutputReceived;
         _processManager.ProcessExited += OnProcessExited;
     }
@@ -56,7 +59,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
             switch (probe.Status)
             {
                 case HealthProbeStatus.DshConfirmed:
-                    var externalUri = probe.FinalUri ?? probe.RequestedUri;
+                    var externalUri = NormalizeConfirmedUri(probe);
                     if (Commit(HarnessStateEvent.DshConfirmed, generation, "外部 DSH 实例运行中", externalUri))
                     {
                         StartRuntimeWatcher(externalUri, generation);
@@ -170,46 +173,160 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
     {
         await RunOperationAsync(async (generation, token) =>
         {
-            if (!Commit(HarnessStateEvent.Restart, generation, "正在停止旧 DSH 进程"))
-            {
-                return;
-            }
-
-            var oldUri = Current.ServiceUri ?? _settings.ServiceUri;
-            try
-            {
-                UntrackOwnedProcess();
-                await _processManager.StopAsync(token);
-                Commit(HarnessStateEvent.OldProcessExited, generation, "旧进程已退出，等待地址释放");
-
-                for (var attempt = 0; attempt < 2; attempt++)
-                {
-                    var result = await _healthMonitor.ProbeAsync(oldUri, TimeSpan.FromSeconds(2), token);
-                    token.ThrowIfCancellationRequested();
-                    if (result.Status != HealthProbeStatus.Unreachable)
-                    {
-                        throw new HarnessException(new HarnessError(
-                            "DSH-E205", "端口被其他服务占用", $"Old endpoint remains occupied: {result.Status}", true));
-                    }
-
-                    if (attempt == 0)
-                    {
-                        await Task.Delay(TimeSpan.FromMilliseconds(300), token);
-                    }
-                }
-
-                Commit(HarnessStateEvent.OldEndpointReleased, generation, "旧地址已释放，正在启动新进程");
-                await StartOwnedAsync(generation, token);
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                var error = exception is HarnessException harnessException
-                    ? harnessException.Error
-                    : new HarnessError("DSH-E103", "无法重启 DSH", exception.Message, true, exception);
-                Commit(HarnessStateEvent.Error, generation, error.UserMessage, error: error);
-            }
+            await RestartOwnedAsync(generation, token);
         }, cancellationToken);
     }
+
+    public async Task ApplyServiceUriAsync(Uri serviceUri, CancellationToken cancellationToken)
+    {
+        if (!ServiceUriValidator.TryNormalize(serviceUri, out var normalized, out var validationError))
+        {
+            throw new HarnessException(new HarnessError("DSH-E202", "服务地址无效", validationError, true));
+        }
+
+        await RunOperationAsync(async (generation, token) =>
+        {
+            switch (Current.State)
+            {
+                case HarnessRuntimeState.Stopped:
+                case HarnessRuntimeState.Failed:
+                    await SaveServiceUriAsync(normalized, token);
+                    break;
+                case HarnessRuntimeState.RunningExternal:
+                    await SwitchExternalUriAsync(normalized, generation, token);
+                    break;
+                case HarnessRuntimeState.RunningOwned:
+                    await SaveServiceUriAsync(normalized, token);
+                    await RestartOwnedAsync(generation, token);
+                    break;
+                default:
+                    throw new HarnessException(new HarnessError(
+                        "DSH-E207",
+                        "当前正在执行生命周期操作，暂时不能修改服务地址",
+                        $"Service URI cannot be applied while state is {Current.State}.",
+                        true));
+            }
+        }, cancellationToken, cancelRuntimeWatcher: false);
+    }
+
+    private async Task RestartOwnedAsync(long generation, CancellationToken token)
+    {
+        if (!Commit(HarnessStateEvent.Restart, generation, "正在停止旧 DSH 进程"))
+        {
+            return;
+        }
+
+        var oldUri = Current.ServiceUri ?? _settings.ServiceUri;
+        try
+        {
+            UntrackOwnedProcess();
+            await _processManager.StopAsync(token);
+            Commit(HarnessStateEvent.OldProcessExited, generation, "旧进程已退出，等待地址释放");
+            await WaitForEndpointReleaseAsync(oldUri, token);
+            Commit(HarnessStateEvent.OldEndpointReleased, generation, "旧地址已释放，正在启动新进程");
+            await StartOwnedAsync(generation, token);
+        }
+        catch (OperationCanceledException)
+        {
+            await CancelRestartAsync(generation);
+            throw;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            var error = exception is HarnessException harnessException
+                ? harnessException.Error
+                : new HarnessError("DSH-E103", "无法重启 DSH", exception.Message, true, exception);
+            Commit(HarnessStateEvent.Error, generation, error.UserMessage, error: error);
+        }
+    }
+
+    private async Task CancelRestartAsync(long generation)
+    {
+        if (Current.Generation != generation
+            || Current.State is not (HarnessRuntimeState.Restarting or HarnessRuntimeState.Starting))
+        {
+            return;
+        }
+
+        Commit(HarnessStateEvent.Cancel, generation, "正在取消重启");
+        UntrackOwnedProcess();
+        await _processManager.StopAsync(CancellationToken.None);
+        Commit(HarnessStateEvent.ProcessExited, generation, "DSH 已停止");
+    }
+
+    private async Task WaitForEndpointReleaseAsync(Uri oldUri, CancellationToken token)
+    {
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var result = await _healthMonitor.ProbeAsync(oldUri, TimeSpan.FromSeconds(2), token);
+            token.ThrowIfCancellationRequested();
+            if (result.Status != HealthProbeStatus.Unreachable)
+            {
+                throw new HarnessException(new HarnessError(
+                    "DSH-E205", "端口被其他服务占用", $"Old endpoint remains occupied: {result.Status}", true));
+            }
+
+            if (attempt == 0)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(300), token);
+            }
+        }
+    }
+
+    private async Task SwitchExternalUriAsync(Uri serviceUri, long generation, CancellationToken token)
+    {
+        var oldUri = Current.ServiceUri ?? _settings.ServiceUri;
+        try
+        {
+            var probe = await _healthMonitor.ProbeAsync(serviceUri, TimeSpan.FromSeconds(5), token);
+            token.ThrowIfCancellationRequested();
+            if (probe.Status != HealthProbeStatus.DshConfirmed)
+            {
+                throw CreateProbeException(probe);
+            }
+
+            var confirmedUri = NormalizeConfirmedUri(probe);
+            await SaveServiceUriAsync(confirmedUri, token);
+            CancelRuntimeWatcher();
+            Commit(HarnessStateEvent.ExternalAddressChanged, generation, "已切换外部 DSH 实例", confirmedUri);
+            StartRuntimeWatcher(confirmedUri, generation);
+        }
+        catch
+        {
+            CancelRuntimeWatcher();
+            StartRuntimeWatcher(oldUri, generation);
+            throw;
+        }
+    }
+
+    private async Task SaveServiceUriAsync(Uri serviceUri, CancellationToken token)
+    {
+        var oldUri = _settings.ServiceUri;
+        _settings.ServiceUri = serviceUri;
+        try
+        {
+            if (_settingsService is not null)
+            {
+                await _settingsService.SaveAsync(_settings, token);
+            }
+        }
+        catch
+        {
+            _settings.ServiceUri = oldUri;
+            throw;
+        }
+    }
+
+    private static HarnessException CreateProbeException(HealthProbeResult probe) => probe.Status switch
+    {
+        HealthProbeStatus.ReachableUnknown => new HarnessException(Error205(probe.Detail)),
+        HealthProbeStatus.ExternalRedirect => new HarnessException(new HarnessError("DSH-E204", "服务重定向到不允许的地址", probe.Detail ?? string.Empty, false)),
+        HealthProbeStatus.InvalidUri => new HarnessException(new HarnessError("DSH-E202", "服务地址无效", probe.Detail ?? string.Empty, true)),
+        _ => new HarnessException(new HarnessError("DSH-E208", "无法连接到指定的 DSH 服务", probe.Detail ?? "Service is unreachable.", true)),
+    };
+
+    private static Uri NormalizeConfirmedUri(HealthProbeResult probe) =>
+        ServiceUriValidator.NormalizeOrThrow(probe.FinalUri ?? probe.RequestedUri);
 
     private async Task StartOwnedAsync(long generation, CancellationToken token)
     {
@@ -244,7 +361,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
             throw new HarnessException(error);
         }
 
-        Commit(HarnessStateEvent.HealthReady, generation, "应用实例运行中", ready.FinalUri, process.ProcessId);
+        Commit(HarnessStateEvent.HealthReady, generation, "应用实例运行中", NormalizeConfirmedUri(ready), process.ProcessId);
     }
 
     private void CommitPreflight(HealthProbeResult result, long generation)
@@ -252,7 +369,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         switch (result.Status)
         {
             case HealthProbeStatus.DshConfirmed:
-                var externalUri = result.FinalUri ?? result.RequestedUri;
+                var externalUri = NormalizeConfirmedUri(result);
                 if (Commit(HarnessStateEvent.PreflightDshConfirmed, generation, "外部 DSH 实例运行中", externalUri))
                 {
                     StartRuntimeWatcher(externalUri, generation);
@@ -294,13 +411,17 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
 
     private async Task RunOperationAsync(
         Func<long, CancellationToken, Task> operation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool cancelRuntimeWatcher = true)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         lock (_operationSync)
         {
             _operationCts?.Cancel();
-            _runtimeWatchCts?.Cancel();
+            if (cancelRuntimeWatcher)
+            {
+                _runtimeWatchCts?.Cancel();
+            }
         }
 
         await _lifecycleGate.WaitAsync(cancellationToken);
@@ -451,6 +572,17 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
             _runtimeWatchCts?.Dispose();
             _runtimeWatchCts = new CancellationTokenSource();
             _runtimeWatchTask = MonitorExternalAsync(uri, generation, _runtimeWatchCts.Token);
+        }
+    }
+
+    private void CancelRuntimeWatcher()
+    {
+        lock (_operationSync)
+        {
+            _runtimeWatchCts?.Cancel();
+            _runtimeWatchCts?.Dispose();
+            _runtimeWatchCts = null;
+            _runtimeWatchTask = null;
         }
     }
 

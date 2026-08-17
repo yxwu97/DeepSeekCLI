@@ -80,6 +80,8 @@ public sealed class DesignHarnessLifecycleCoordinator(HarnessStateMachine stateM
         }, cancellationToken);
     }
 
+    public Task ApplyServiceUriAsync(Uri serviceUri, CancellationToken cancellationToken) => Task.CompletedTask;
+
     private async Task ExecuteAsync(Func<long, Task> action, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);

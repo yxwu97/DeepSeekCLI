@@ -1,10 +1,11 @@
 <Project>
   <PropertyGroup>
-    <AppVersion>0.1.4</AppVersion>
+    <AppVersion>0.3.0</AppVersion>
     <Version>$(AppVersion)</Version>
     <AssemblyVersion>$(AppVersion).0</AssemblyVersion>
     <FileVersion>$(AppVersion).0</FileVersion>
     <InformationalVersion>$(AppVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

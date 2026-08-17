@@ -2,7 +2,7 @@ using DeepSeekHarnessDesktop.Models;
 
 namespace DeepSeekHarnessDesktop.Services.Abstractions;
 
-public interface IWebViewNavigationService
+public interface ICodeWebViewService
 {
     Task InitializeAsync(CancellationToken cancellationToken);
     Task NavigateAsync(Uri uri, CancellationToken cancellationToken);

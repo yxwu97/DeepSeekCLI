@@ -20,14 +20,12 @@ public static partial class UrlParser
 
         var text = TrimTrailingPunctuation(match.Value);
         if (!Uri.TryCreate(text, UriKind.Absolute, out var uri)
-            || !uri.IsLoopback
-            || uri.Scheme is not ("http" or "https")
-            || uri.Port is < 1 or > 65535)
+            || !ServiceUriValidator.TryNormalize(uri, out var normalized, out _))
         {
             return null;
         }
 
-        return uri;
+        return normalized;
     }
 
     private static string TrimTrailingPunctuation(string value)

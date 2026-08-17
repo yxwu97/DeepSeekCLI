@@ -44,7 +44,8 @@ public partial class App : System.Windows.Application
 
         _settingsService = new SettingsService(_logService.CreateLogger<SettingsService>());
         _settings = await _settingsService.LoadAsync(CancellationToken.None);
-        var diagnostics = await new DependencyDiagnosticsService().DiagnoseAsync(CancellationToken.None);
+        var diagnosticsService = new DependencyDiagnosticsService();
+        var diagnostics = await diagnosticsService.DiagnoseAsync(CancellationToken.None);
         foreach (var error in diagnostics.Errors)
         {
             _logger.LogWarning(new EventId(1010), "{Code}: {Message}", error.Code, error.TechnicalMessage);
@@ -52,11 +53,15 @@ public partial class App : System.Windows.Application
         _services = new ServiceCollection()
             .AddSingleton(_settings)
             .AddSingleton(diagnostics)
+            .AddSingleton<IDependencyDiagnosticsService>(diagnosticsService)
             .AddSingleton(_settingsService)
             .AddSingleton(new HttpClient { Timeout = TimeSpan.FromSeconds(15) })
             .AddSingleton<IDeepSeekApiKeyProvider, DeepSeekApiKeyProvider>()
             .AddSingleton<IDeepSeekAccountService, DeepSeekAccountService>()
             .AddSingleton<AccountViewModel>()
+            .AddSingleton<IDshReleaseService>(_ => new DshReleaseService())
+            .AddSingleton<IExternalLinkLauncher, ExternalLinkLauncher>()
+            .AddSingleton<IUserConfirmationService, UserConfirmationService>()
             .AddSingleton<TrayIconService>()
             .AddSingleton<HarnessStateMachine>()
             .AddSingleton<IRecentLogBuffer, RecentLogBuffer>()
@@ -65,9 +70,15 @@ public partial class App : System.Windows.Application
             .AddSingleton<IHarnessProcessManager, HarnessProcessManager>()
             .AddSingleton<IHarnessHealthMonitor, HarnessHealthMonitor>()
             .AddSingleton<IRuntimeHealthWatcher, RuntimeHealthWatcher>()
-            .AddSingleton<WebViewNavigationService>()
-            .AddSingleton<IWebViewNavigationService>(services => services.GetRequiredService<WebViewNavigationService>())
+            .AddSingleton<IWebViewEnvironmentProvider, WebViewEnvironmentProvider>()
+            .AddSingleton<CodeWebViewService>()
+            .AddSingleton<ICodeWebViewService>(services => services.GetRequiredService<CodeWebViewService>())
+            .AddSingleton<ChatWebViewService>()
+            .AddSingleton<IChatWebViewService>(services => services.GetRequiredService<ChatWebViewService>())
             .AddSingleton<IHarnessLifecycleCoordinator, HarnessLifecycleCoordinator>()
+            .AddSingleton<InstallationGuideViewModel>()
+            .AddSingleton<SettingsViewModel>()
+            .AddSingleton<AboutViewModel>()
             .AddSingleton<MainWindowViewModel>()
             .AddSingleton<MainWindow>()
             .BuildServiceProvider(validateScopes: true);
@@ -83,7 +94,7 @@ public partial class App : System.Windows.Application
         window.Show();
         try
         {
-            await _services.GetRequiredService<IWebViewNavigationService>()
+            await _services.GetRequiredService<ICodeWebViewService>()
                 .InitializeAsync(CancellationToken.None);
             await _services.GetRequiredService<IHarnessLifecycleCoordinator>()
                 .InitializeAsync(CancellationToken.None);

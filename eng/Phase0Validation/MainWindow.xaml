@@ -17,6 +17,9 @@
                  Text="Initializing WebView2 and accelerator routing..."
                  AutomationProperties.LiveSetting="Polite" />
     </Border>
-    <wv2:WebView2 x:Name="Browser" Grid.Row="1" />
+    <Grid Grid.Row="1">
+      <wv2:WebView2 x:Name="Browser" />
+      <wv2:WebView2 x:Name="ChatBrowser" Visibility="Collapsed" />
+    </Grid>
   </Grid>
 </Window>

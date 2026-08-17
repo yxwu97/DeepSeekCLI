@@ -4,8 +4,8 @@
 
 - 项目名称：DeepSeek Harness Desktop
 - 目标平台：Windows 10/11 x64
-- 文档版本：0.2
-- 编写日期：2026-08-14
+- 文档版本：0.3
+- 更新日期：2026-08-17
 - 项目目录：`E:\DeepSeekCLI`
 - 官方文档：<https://deepseek-harness.github.io/deepseek-harness/guide/quickstart>
 - 官方仓库：<https://github.com/deepseek-ai/deepseek-harness>
@@ -18,7 +18,7 @@
 
 ## 2. 项目目标
 
-开发一个 Windows 桌面 EXE，用于启动本机已安装的 DeepSeek Harness Web UI，并在桌面窗口内通过嵌入式浏览器显示该页面。
+开发一个 Windows 桌面 EXE，用于启动本机 DeepSeek Harness Web UI，并在桌面窗口内切换显示本机 Code 页面与官方 DeepSeek Chat 页面。
 
 应用负责：
 
@@ -29,6 +29,7 @@
 5. 提供页面刷新、DSH 启动、停止和重启操作。
 6. 显示启动过程、运行状态和错误日志。
 7. 在应用退出时正确处理由应用创建的 DSH 子进程。
+8. 以独立、持久的 WebView2 profile 懒加载官方 DeepSeek Chat，并与 DSH 生命周期隔离。
 
 本项目不重新实现 DeepSeek Harness 的会话、模型、工具、审批、工作区和配置界面。这些能力继续由官方 Web UI 提供。
 
@@ -83,7 +84,8 @@ DeepSeekHarnessDesktop.exe
 ├── WPF 主窗口
 │   ├── 顶部控制栏
 │   ├── 状态与错误提示
-│   └── WebView2
+│   ├── Code WebView2（默认 profile）
+│   └── Chat WebView2（固定 Chat profile，懒加载）
 ├── HarnessProcessManager
 │   ├── 启动 DSH
 │   ├── 捕获 stdout/stderr
@@ -109,7 +111,7 @@ DeepSeekHarnessDesktop.exe
 
 ### 5.1 主窗口
 
-主窗口由固定高度的顶部控制栏和占满剩余区域的 WebView2 组成。
+主窗口由自适应两行顶部控制栏、内容区和状态栏组成。第一行提供 Code/Chat 分段切换及当前模式操作，Code 模式的第二行显示工作目录；内容区同时持有两个 WebView2 控件，但任意时刻只显示当前模式页面。
 
 顶部控制栏包含：
 
@@ -122,6 +124,8 @@ DeepSeekHarnessDesktop.exe
 - 刷新页面按钮
 - 查看日志按钮
 - 更多设置菜单
+- Code/Chat 模式切换
+- Chat 登录信息清除
 
 控制栏不覆盖网页内容，窗口缩放时 WebView2 自动填充剩余空间。
 
@@ -137,11 +141,13 @@ DeepSeekHarnessDesktop.exe
 
 ### 5.3 操作语义
 
-- 刷新页面：仅调用 WebView2 Reload，不操作 DSH 进程。
+- 刷新页面：仅刷新当前可见页面，不操作 DSH 进程。
 - 启动 DSH：创建新进程并等待服务就绪。
 - 停止 DSH：停止当前应用创建的进程树并显示已停止页。
 - 重启 DSH：停止应用实例，确认退出后重新启动并恢复 Web UI。
 - 选择工作目录：只在 DSH 停止时允许修改；运行中修改需先确认重启。
+- 切换到 Chat：第一次切换时懒加载，后续切换保留页面实例；不停止、启动或重启 DSH。
+- 清除 Chat 登录信息：二次确认后只清除 Chat profile，并重新加载固定 Chat 入口。
 
 ## 6. 应用状态机
 
@@ -246,12 +252,9 @@ Windows 下 `.cmd` 启动脚本需要通过受控的 `cmd.exe /d /v:off /s /c` �
 
 ### 9.1 导航限制
 
-默认只允许内嵌访问：
+Code 只允许内嵌已经过健康检查和 DSH 身份确认的 loopback origin，重定向和后续主导航保持同源。Chat 只允许精确的 `https://chat.deepseek.com:443` origin；HTTP、用户信息、非默认端口、尾点主机、IDN 混淆和危险协议均不能内嵌。其他合法 HTTP(S) 地址由受控服务交给系统浏览器。
 
-- `http://127.0.0.1:*`
-- `http://localhost:*`
-
-外部链接通过系统默认浏览器打开，避免在应用内离开 Harness。若用户配置了远程 Harness 地址，应明确加入允许列表。
+额外登录或验证码 origin 尚未通过真实流程冻结，不使用 `*.deepseek.com` 通配符。系统浏览器与应用专用 Chat profile 不共享 Cookie，因此外部打开不能被描述为应用内登录降级方案。
 
 ### 9.2 浏览器数据
 
@@ -261,14 +264,16 @@ WebView2 用户数据存放于：
 %LOCALAPPDATA%\DeepSeekHarnessDesktop\WebView2
 ```
 
-这样登录状态、DSH Web UI 设置和缓存可在应用重启后保留。设置中提供“清除浏览器数据”操作，但执行前必须确认。
+Code 保留现有默认 profile，避免升级后丢失 Harness 页面数据。Chat 使用固定命名 `Chat` profile、关闭 InPrivate，并请求启用 WebView2 原生密码保存和常规自动填充；功能是否实际可用取决于 Runtime 和企业策略。宿主不读取密码、Cookie、Token 或站点存储。
 
 ### 9.3 错误处理
 
 - 导航失败时不自动重启 DSH，先重新进行健康检查。
-- WebView2 进程异常时尝试重建 WebView2 控件。
+- Code 与 Chat 分别维护恢复预算，一个页面失败不会刷新另一个页面。
 - 缺少 WebView2 Runtime 时显示安装说明。
 - 页面刷新和 DSH 重启必须是两个独立操作。
+
+Chat 使用独立 `ChatPageState`（未初始化、初始化、就绪、失败、清除中）和 `WEB-E31x` 错误，不向 `HarnessRuntimeState` 增加 Chat 状态。权限请求默认拒绝，下载默认取消，不注册宿主对象、WebMessage 或脚本注入。
 
 ## 10. 配置设计
 
@@ -351,7 +356,9 @@ E:\DeepSeekCLI
 │       │   ├── HarnessHealthMonitor.cs
 │       │   ├── SettingsService.cs
 │       │   ├── LogService.cs
-│       │   └── WebViewNavigationService.cs
+│       │   ├── WebViewEnvironmentProvider.cs
+│       │   ├── CodeWebViewService.cs
+│       │   └── ChatWebViewService.cs
 │       ├── ViewModels
 │       │   └── MainWindowViewModel.cs
 │       └── Views
@@ -449,7 +456,6 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 
 - 系统托盘和后台常驻
 - 多个 DSH 工作区实例
-- 自定义端口选择
 - 远程 Harness 地址
 - 自动检查 DSH 新版本
 - 开机自动启动
@@ -457,3 +463,35 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 - 崩溃报告导出
 
 只有在单实例启动、停止和重启稳定后，才考虑加入多实例支持。
+
+## 18. Desktop 0.2.0 可用性增量
+
+### 18.1 安装引导
+
+依赖诊断通过 `IDependencyDiagnosticsService` 表达 WebView2、全局 `dsh.cmd`、Node.js 和 `npx.cmd` 的 `Available`、`Missing` 或 `Unusable` 状态。只要全局 DSH 可用，Node.js/npx 缺失不构成 `DSH-E101`；否则必须同时具备 Node.js 与 npx。
+
+安装引导是主窗口显示模式，不是新的 `HarnessRuntimeState`。用户确认“下载并启动”后仍调用 `IHarnessLifecycleCoordinator.StartAsync`，因此 npx 下载、取消、进程输出、Job Object 和 generation 防护都使用原有 Owned 生命周期。引导最多显示最近 200 行已经规范化的进程日志。
+
+### 18.2 服务 origin 与端口
+
+`ServiceUriValidator` 是配置、健康探测、输出解析和 WebView2 导航的共同安全原语。配置只接受绝对、无用户信息、无 query/fragment 的 loopback HTTP(S) URI，并规范化到 `/`。默认端口继续使用原命令；非默认端口只生成以下两种受控模板之一：
+
+```text
+dsh.cmd web --port <1-65535>
+npx.cmd -y @deepseek-ai/dsh@0.1.0-rc.6 web --port <1-65535>
+```
+
+`.cmd` 构造器不接受用户参数列表或 Shell 文本。固定版本已在 2026-08-17 真实验证 `web --port` 与 `--profile web --port` 等价，本项目沿用较短的 `web --port`。
+
+地址应用由生命周期协调器串行处理：停止/失败状态只原子保存；外部实例先确认新地址身份再替换 watcher，失败则恢复原 watcher；Owned 实例由 UI 确认后保存，并严格执行停止旧进程、两次确认旧端点不可达、启动新进程。启动、停止、重启或初始化期间返回 `DSH-E207`。
+
+### 18.3 手动更新检查
+
+`DshReleaseService` 只访问固定 npm 官方 `latest` endpoint，禁用自动重定向和 Cookie，超时 15 秒，响应上限 64 KiB，只解析 `version` 字段，并使用 `NuGet.Versioning` 比较 prerelease。结果只保存在 `AboutViewModel` 内存中；应用不做启动时请求、不持久化检查时间、不下载、不安装，也不改变固定 DSH 版本或 Harness 状态。
+
+### 18.4 新错误语义
+
+- `DSH-E207`：生命周期忙碌，暂时不能应用服务地址。
+- `DSH-E208`：候选本机 DSH 地址不可达。
+
+`DSH-E101`、`DSH-E201` 至 `DSH-E205` 保持原语义。更新检查错误只显示在关于窗口，不进入 Harness 状态机。

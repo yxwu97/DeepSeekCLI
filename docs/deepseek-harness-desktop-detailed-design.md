@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | 1.1 |
-| 编写日期 | 2026-08-14 |
-| 目标版本 | MVP 0.1.0 |
+| 文档版本 | 1.2 |
+| 更新日期 | 2026-08-17 |
+| 目标版本 | Desktop 0.3.0 |
 | 目标平台 | Windows 10/11 x64 |
 | 桌面框架 | .NET 8 / WPF |
 | 网页宿主 | Microsoft Edge WebView2 |
@@ -30,6 +30,8 @@
 4. 使用 WebView2 在应用窗口中加载 Web UI。
 5. 管理由本应用创建的 DSH 进程，包括停止、重启和异常退出检测。
 6. 提供启动日志、错误诊断、配置持久化和退出清理。
+7. 在同一进程内切换 Code 与官方 Chat 页面，并保持两页实例和状态。
+8. 使用独立 WebView2 profile 保存 Chat 官方会话，不复制、读取或导出凭据。
 
 以下能力不在桌面宿主中重复实现：
 
@@ -56,6 +58,10 @@
 | DD-011 | Owned DSH 固定随桌面宿主退出 | 与 Job Object 的 `KILL_ON_JOB_CLOSE` 语义一致，优先保证无残留进程 |
 | DD-012 | HTTP 可达与 DSH 身份确认分离 | 防止把占用端口的无关 Web 服务误判为外部 DSH |
 | DD-013 | `RunningExternal` 使用主动健康监测 | 消除仅靠导航失败才能发现外部服务失联的状态盲区 |
+| DD-014 | Code/Chat 是展示模式，不是 Harness 状态 | 切换模式不得改变 DSH PID、ownership、generation 或操作 CTS |
+| DD-015 | 两个 WebView2 共享 environment、隔离 profile | 复用 Runtime 资源，同时避免 Code 与 Chat 浏览数据互相污染 |
+| DD-016 | Chat 只内嵌精确官方 origin | 防止通配符、相似域名、IDN、尾点和非默认端口绕过 |
+| DD-017 | Chat 权限与下载默认拒绝 | 在真实官方流程证明必要且可控前保持最小宿主能力 |
 
 ## 4. 系统上下文
 
@@ -63,7 +69,8 @@
 flowchart LR
     User[用户]
     Desktop[DeepSeek Harness Desktop]
-    WebView[WebView2]
+    CodeWebView[Code WebView2]
+    ChatWebView[Chat WebView2]
     DSH[DeepSeek Harness Web 进程]
     Project[本地工作目录]
     BrowserRuntime[Edge WebView2 Runtime]
@@ -72,10 +79,13 @@ flowchart LR
     User --> Desktop
     Desktop -->|启动/停止/重启| DSH
     Desktop -->|HTTP 健康检查| DSH
-    Desktop --> WebView
-    WebView -->|HTTP 访问| DSH
+    Desktop --> CodeWebView
+    Desktop --> ChatWebView
+    CodeWebView -->|已确认 loopback origin| DSH
+    ChatWebView -->|精确 HTTPS origin| Chat[DeepSeek Chat]
     DSH --> Project
-    WebView --> BrowserRuntime
+    CodeWebView --> BrowserRuntime
+    ChatWebView --> BrowserRuntime
     Desktop --> Settings
 ```
 
@@ -93,7 +103,9 @@ flowchart TB
     subgraph Application[Application]
         Coordinator[HarnessLifecycleCoordinator]
         StateMachine[HarnessStateMachine]
-        Navigation[WebViewNavigationService]
+        CodeNavigation[CodeWebViewService]
+        ChatNavigation[ChatWebViewService]
+        Environment[WebViewEnvironmentProvider]
     end
 
     subgraph Infrastructure[Infrastructure]
@@ -108,7 +120,10 @@ flowchart TB
 
     MainWindow --> MainVM
     MainVM --> Coordinator
-    MainVM --> Navigation
+    MainVM --> CodeNavigation
+    MainVM --> ChatNavigation
+    CodeNavigation --> Environment
+    ChatNavigation --> Environment
     Coordinator --> StateMachine
     Coordinator --> Resolver
     Coordinator --> ProcessManager
@@ -154,7 +169,9 @@ DeepSeekCLI/
 │       │   │   ├── IHarnessLifecycleCoordinator.cs
 │       │   │   ├── IHarnessProcessManager.cs
 │       │   │   ├── ISettingsService.cs
-│       │   │   └── IWebViewNavigationService.cs
+│       │   │   ├── ICodeWebViewService.cs
+│       │   │   ├── IChatWebViewService.cs
+│       │   │   └── IWebViewEnvironmentProvider.cs
 │       │   ├── DshCommandResolver.cs
 │       │   ├── HarnessHealthMonitor.cs
 │       │   ├── HarnessLifecycleCoordinator.cs
@@ -162,7 +179,9 @@ DeepSeekCLI/
 │       │   ├── HarnessStateMachine.cs
 │       │   ├── SettingsService.cs
 │       │   ├── SingleInstanceService.cs
-│       │   ├── WebViewNavigationService.cs
+│       │   ├── WebViewEnvironmentProvider.cs
+│       │   ├── CodeWebViewService.cs
+│       │   ├── ChatWebViewService.cs
 │       │   └── WindowsJobObject.cs
 │       ├── ViewModels/
 │       │   ├── MainWindowViewModel.cs
@@ -377,10 +396,10 @@ public interface IHarnessLifecycleCoordinator : IAsyncDisposable
 }
 ```
 
-### 9.5 WebView 导航
+### 9.5 WebView 页面服务
 
 ```csharp
-public interface IWebViewNavigationService
+public interface ICodeWebViewService
 {
     Task InitializeAsync(CancellationToken cancellationToken);
     Task NavigateAsync(Uri uri, CancellationToken cancellationToken);
@@ -389,6 +408,15 @@ public interface IWebViewNavigationService
         HarnessRuntimeState state,
         HarnessError? error,
         CancellationToken cancellationToken);
+}
+
+public interface IChatWebViewService
+{
+    ChatPageSnapshot Current { get; }
+    event EventHandler<ChatPageSnapshot>? StateChanged;
+    Task InitializeAsync(CancellationToken cancellationToken);
+    Task ReloadAsync(CancellationToken cancellationToken);
+    Task ClearBrowsingDataAsync(CancellationToken cancellationToken);
 }
 ```
 
@@ -865,13 +893,9 @@ Grid
 %LOCALAPPDATA%\DeepSeekHarnessDesktop\WebView2
 ```
 
-初始化步骤：
+`WebViewEnvironmentProvider` 在固定数据根目录并发幂等地创建一个 `CoreWebView2Environment`。Code 使用原有默认 profile；Chat 使用 controller options 固定 `ProfileName=Chat`、`IsInPrivateModeEnabled=false`。应用冷启动只初始化 Code，第一次切换到 Chat 才创建 Chat controller 和访问网络。
 
-1. 创建 `CoreWebView2Environment`。
-2. 调用 `EnsureCoreWebView2Async`。
-3. 配置权限、下载、新窗口和导航事件。
-4. 默认显示本地 WPF 状态视图，不加载远程页面。
-5. DSH 健康检查成功后调用 `NavigateAsync`。
+两个 WPF 控件始终留在主窗口中，以 `Collapsed/Visible` 切换。普通模式切换不 Dispose、不 Reload；真正退出时服务取消操作、解除全部 CoreWebView2 事件并释放各自控件。加载或错误状态先折叠 WebView2，再显示同一区域的原生状态页，规避 HWND airspace 覆盖。
 
 ### 18.2 WebView2 设置
 
@@ -883,21 +907,21 @@ IsZoomControlEnabled = true
 AreBrowserAcceleratorKeysEnabled = false
 ```
 
-Debug 构建允许通过设置开启开发者工具，Release 默认关闭。浏览器加速键关闭后，宿主只实现 §17.4 明确列出的组合键；页面内普通输入、复制、粘贴、撤销等编辑键不拦截。
+Code 的 Debug 构建允许通过设置开启开发者工具，Release 关闭；Chat 在所有构建中关闭 DevTools。Chat profile 请求启用 `IsPasswordAutosaveEnabled` 与 `IsGeneralAutofillEnabled`，但原生密码提示是否出现取决于 Runtime、Windows 和企业策略，宿主不提供凭据模型或绕过机制。
 
 ### 18.3 导航策略
 
-允许内嵌：
+Code 允许当前已验证的 DSH Service URI 同源地址。健康检查完成 loopback 内部重定向后，只信任最终已验证 URI 的 origin；其他 loopback host 或端口必须重新通过身份检查。
 
-- 当前已验证的 DSH Service URI 同源地址。
-- 健康检查完成 loopback 内部重定向后，只信任最终已验证 URI 的 origin；其他 loopback host 或端口也必须重新通过身份检查，不能仅凭“是本机地址”放行。
+Chat 允许精确 `https://chat.deepseek.com:443`。每次顶层导航和重定向重新执行 `ChatNavigationPolicy`，比较绝对 URI 的 scheme、ASCII/IDN host、有效端口与 UserInfo；拒绝 HTTP 版 Chat、非默认端口、尾点、用户信息、IDN 混淆和危险协议。其他合法 HTTP(S) 链接外开。额外登录/验证码 origin 未经真实验证不得加入，禁止 wildcard。
 
 处理规则：
 
-- `NavigationStarting` 中检查 Scheme、Host 和 Port。
-- 非允许地址取消导航并使用系统默认浏览器打开。
-- `NewWindowRequested` 始终设置 `Handled=true`，外部链接交给系统浏览器。
+- Code/Chat 分别订阅 `NavigationStarting`，不共享可变允许列表。
+- Chat 对宿主主动取消的 navigation id 做标记，后续 `NavigationCompleted` 不误报网络失败。
+- `NewWindowRequested` 始终设置 `Handled=true`；仅精确 Chat origin 可在当前 Chat 控件导航，其他安全 HTTP(S) 外开。
 - `file:`、`data:`、`javascript:` 默认拒绝。
+- `PermissionRequested` 默认 `Deny`，`DownloadStarting` 默认 `Cancel=true`。
 - 不向网页注入宿主对象。
 - 不调用 `AddHostObjectToScript`。
 - 不执行来自 DSH 页面的任意宿主命令。
@@ -908,19 +932,29 @@ Debug 构建允许通过设置开启开发者工具，Release 默认关闭。浏
 |---|---|
 | `NavigationCompleted.IsSuccess=false` | 重新探测 DSH；不可达则显示连接失败状态 |
 | `ProcessFailed` | 记录原因并重建 WebView2；最多自动重建 1 次 |
-| Runtime 缺失 | 显示 `APP-E301` 和安装说明 |
+| Runtime 缺失 | 显示 `WEB-E301` 和安装说明 |
 | 外部链接 | 系统默认浏览器打开 |
+
+Chat 不调用生命周期协调器，使用独立快照和错误号段：`WEB-E311` 初始化/profile、`WEB-E312` 网络/DNS、`WEB-E313` TLS、`WEB-E314` HTTP、`WEB-E315` 页面进程、`WEB-E316` profile 清除、`WEB-E318` 外链启动。宿主主动取消不映射为错误。单页只自动恢复一次，显式重试只导航固定入口。
 
 页面导航失败不直接重启 DSH。必须先通过健康检查区分网页渲染故障和服务故障。
 
 ### 18.5 页面刷新
 
-`ReloadPageCommand` 只调用 `CoreWebView2.Reload()`：
+`ReloadPageCommand` 按当前模式路由：Code 调用 Reload；Chat 重新导航固定入口。两者均满足：
 
 - 不修改 Harness 状态。
 - 不停止或重启进程。
 - 不清除 WebView2 用户数据。
 - 若服务已经不可达，刷新失败后进入连接失败处理。
+
+### 18.6 Chat 数据清除
+
+清除命令仅在 Chat profile 已初始化后可用：用户二次确认后，Chat 服务持有单页操作门，停止当前导航，调用 `ClearBrowsingDataAsync(AllProfile)`，成功后重新导航固定入口。失败映射 `WEB-E316`，不得直接删除 profile 目录，也不得影响 Code profile、工作目录、设置、日志或 DSH。
+
+### 18.7 模式与并发
+
+`MainWindowViewModel` 默认 `AppContentMode.Code`，不写入 `AppSettings`。首次 Chat 初始化用进程内标记去重；Chat 服务另有 `SemaphoreSlim`、lifetime CTS 与 generation，过期快照不得覆盖较新状态。隐藏到托盘、第二实例激活、最小化和恢复只操作窗口，不重置模式或释放 controller；完整退出再统一释放。
 
 ## 19. 配置详细设计
 
@@ -1050,6 +1084,13 @@ public sealed record HarnessError(
 | `WEB-E301` | WebView2 Runtime 不可用 | 否 |
 | `WEB-E302` | 页面加载失败 | 是 |
 | `WEB-E303` | WebView2 渲染进程异常 | 是 |
+| `WEB-E311` | DeepSeek Chat 初始化失败 | 是 |
+| `WEB-E312` | 无法连接或解析 DeepSeek Chat | 是 |
+| `WEB-E313` | DeepSeek Chat 安全连接失败 | 是 |
+| `WEB-E314` | DeepSeek Chat 服务返回错误 | 是 |
+| `WEB-E315` | DeepSeek Chat 页面进程异常 | 是 |
+| `WEB-E316` | 无法清除 Chat 登录信息 | 是 |
+| `WEB-E318` | 无法打开外部链接 | 是 |
 | `CFG-E401` | 配置文件损坏，已恢复默认设置 | 否 |
 | `CFG-E402` | 无法保存设置 | 是 |
 | `APP-E501` | 应用已经在运行 | 否 |
@@ -1344,7 +1385,42 @@ MVP 必须同时满足：
 编码前仍需确认：
 
 1. 首版是否只发布 Windows x64。
-2. 是否允许用户配置自定义 DSH 参数和端口。
+2. 是否允许用户配置自定义 DSH 参数。
 3. 是否在首版包含安装包，还是先提供免安装 ZIP。
 
-未确认时采用本文默认值：Windows x64、允许高级自定义原生可执行文件、关闭时固定停止应用实例、首版先提供 ZIP。
+未确认时采用本文默认值：Windows x64、允许高级自定义原生可执行文件、关闭时固定停止应用实例、首版先提供 ZIP。Desktop 0.2.0 已支持受控数字端口模板，但不接受任意用户 Shell 参数。
+
+## 30. Desktop 0.2.0 安装、地址与更新增量
+
+### 30.1 单一事实来源
+
+`DshPackageMetadata` 统一提供包名 `@deepseek-ai/dsh`、验证版本 `0.1.0-rc.6`、默认地址 `http://127.0.0.1:3080/` 和 npm `latest` endpoint。解析器、诊断、命令构造、设置、关于窗口和更新检查均引用该类型。
+
+`ServiceUriValidator` 对配置 origin 执行结构化校验和规范化：仅允许绝对 loopback HTTP(S)，拒绝用户信息、query、fragment 与 0/越界端口，路径归一化为 `/`。健康探测允许在同 origin 内跟随路径重定向，但提交到状态机、设置和 WebView2 的地址仍规范化为 origin。
+
+### 30.2 依赖与安装引导
+
+`DependencyDiagnosticsResult` 分别保存 WebView2、全局 DSH、Node.js 和 npx 的分类结果。诊断版本子进程有 3 秒超时，取消或超时后终止本次创建的进程树并等待退出。全局 DSH 的 `--version` 失败只显示路径和未知版本；不安全的 `.cmd` 路径归类为不可用。
+
+`InstallationGuideViewModel` 订阅现有有界、脱敏日志缓冲区。重新诊断和启动命令互斥且可取消；打开 Node.js 下载页只能调用固定资源枚举。用户确认后调用现有 `StartAsync`，不直接创建进程，也不增加 `Installing` 状态。进入 `RunningOwned` 或 `RunningExternal` 后引导自动关闭。
+
+### 30.3 地址事务
+
+`IHarnessLifecycleCoordinator.ApplyServiceUriAsync` 与 Start/Stop/Restart 共用生命周期门和 generation：
+
+1. `Stopped`/`Failed`：规范化并通过 `ISettingsService` 原子保存。
+2. `RunningExternal`：保留原地址和 watcher，探测候选地址；仅 `DshConfirmed` 才保存、执行 `ExternalAddressChanged` 自迁移并启动新 watcher。失败或取消时恢复原 watcher，原配置和页面不变。
+3. `RunningOwned`：UI 先确认；协调器保存新 origin，再复用重启序列。旧进程退出且旧端点连续两次不可达后，resolver 才使用新端口启动。
+4. 其他状态：拒绝并返回 `DSH-E207`。
+
+取消 Owned 地址重启时，`Restarting/Starting -> Cancel -> Stopping -> ProcessExited -> Stopped`，确保不遗留进程或中间状态。`RunningExternal` 仍没有 Stop/Restart 转移。
+
+### 30.4 更新检查边界
+
+`DshReleaseService` 使用独立 `HttpClient`，关闭自动重定向与 Cookie，只请求固定 npm 官方 endpoint。请求最长 15 秒，响应体最多 64 KiB，只接受可由 `NuGet.Versioning` 解析的 `version` 字段。HTTP、超时、过大响应和 JSON 错误转换为无副作用的 `DshUpdateCheckResult`；调用方取消继续传播。
+
+`AboutViewModel` 支持重新诊断、手动检查、取消和固定官方资料入口。检查结果不写入 `AppSettings`，不调用生命周期协调器，不修改启动命令。即使 npm `latest` 更新，运行版本仍保持验证版本。
+
+### 30.5 资源与 UI
+
+`InstallationGuideViewModel`、`SettingsViewModel` 在 DI 中为 Singleton，并在容器释放时取消命令、解除事件订阅。设置窗口和关于窗口关闭时取消仍在执行的网络/诊断操作。所有后台状态和日志回调在更新 WPF 集合前切回 Dispatcher。

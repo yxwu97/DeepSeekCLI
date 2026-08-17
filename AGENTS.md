@@ -75,9 +75,10 @@ DeepSeek Harness Desktop 是面向 Windows 10/11 x64 的原生桌面宿主。应
 ### 5.4 服务身份与 WebView2
 
 - 默认服务地址必须是 loopback。端口可访问不等于 DSH 可用；加载或认定外部实例前必须验证 HTTP 状态、HTML 内容和 DSH 身份标记。
-- 重定向只能在 loopback 地址之间进行；禁止自动跟随或内嵌加载远程地址、带用户信息的 URL 或身份不明的本机服务。
-- WebView2 主导航保持与已确认 DSH 地址同源；外部 `http/https` 链接交给系统浏览器。
-- 不向网页注入宿主对象、本机进程能力或任意 JavaScript。放宽导航或 WebView2 权限属于安全变更，必须有针对性测试和文档说明。
+- Code WebView2 的重定向只能在 loopback 地址之间进行，主导航必须与已确认 DSH 地址同源；禁止加载远程地址、带用户信息的 URL 或身份不明的本机服务。
+- Chat WebView2 只允许精确的 `https://chat.deepseek.com:443` origin，使用固定 `Chat` profile 且不与 Code 共享 profile。新增登录、验证码或其他远程 origin 前必须有真实流程证据、逐项常量、相邻恶意域名测试和安全评审，禁止通配符。
+- 非内嵌 HTTP(S) 链接交给受控系统浏览器服务；危险协议直接拒绝。Chat 权限默认拒绝、下载默认取消，不读取或复制 Cookie、Token、密码、DOM、消息、站点存储或网络正文。
+- 不向任一网页注入宿主对象、本机进程能力或任意 JavaScript。放宽导航、profile、下载或 WebView2 权限属于安全变更，必须有针对性测试和文档说明。
 
 ### 5.5 配置、凭据与日志
 
