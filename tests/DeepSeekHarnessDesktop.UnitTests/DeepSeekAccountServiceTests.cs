@@ -90,7 +90,10 @@ public sealed class DeepSeekAccountServiceTests
     public async Task AccountViewModelUsesSystemKeyForEmptyQueriesAndCanClearIt()
     {
         var service = new StubAccountService();
-        var viewModel = new AccountViewModel(service, new StubApiKeyProvider("sk-system-5678"));
+        var viewModel = new AccountViewModel(
+            service,
+            new StubApiKeyProvider("sk-system-5678"),
+            new StubLinkLauncher());
 
         await viewModel.RefreshAsync("sk-session-1234", CancellationToken.None);
         await viewModel.RefreshAsync(null, CancellationToken.None);
@@ -112,7 +115,7 @@ public sealed class DeepSeekAccountServiceTests
     public async Task AccountViewModelRejectsMissingKeyWithoutCallingApi()
     {
         var service = new StubAccountService();
-        var viewModel = new AccountViewModel(service, new StubApiKeyProvider(null));
+        var viewModel = new AccountViewModel(service, new StubApiKeyProvider(null), new StubLinkLauncher());
 
         await viewModel.RefreshAsync(null, CancellationToken.None);
 
@@ -124,11 +127,25 @@ public sealed class DeepSeekAccountServiceTests
     public async Task AccountViewModelUsesManualKeyForCurrentQuery()
     {
         var service = new StubAccountService();
-        var viewModel = new AccountViewModel(service, new StubApiKeyProvider("sk-system"));
+        var viewModel = new AccountViewModel(service, new StubApiKeyProvider("sk-system"), new StubLinkLauncher());
 
         await viewModel.RefreshAsync(" sk-manual ", CancellationToken.None);
 
         Assert.Equal("sk-manual", service.LastApiKey);
+    }
+
+    [Fact]
+    public void AccountTopUpCommandUsesFixedOfficialResource()
+    {
+        var linkLauncher = new StubLinkLauncher();
+        var viewModel = new AccountViewModel(
+            new StubAccountService(),
+            new StubApiKeyProvider(null),
+            linkLauncher);
+
+        viewModel.OpenTopUpCommand.Execute(null);
+
+        Assert.Equal(OfficialResource.DeepSeekTopUp, linkLauncher.LastResource);
     }
 
     private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
@@ -175,5 +192,12 @@ public sealed class DeepSeekAccountServiceTests
     {
         public Task<string?> GetCurrentAsync(CancellationToken cancellationToken) =>
             Task.FromResult(apiKey);
+    }
+
+    private sealed class StubLinkLauncher : IExternalLinkLauncher
+    {
+        public OfficialResource? LastResource { get; private set; }
+        public void Open(OfficialResource resource) => LastResource = resource;
+        public void Open(Uri uri) { }
     }
 }

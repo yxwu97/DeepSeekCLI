@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services.Abstractions;
 using System.Collections.ObjectModel;
@@ -9,6 +10,7 @@ public sealed partial class AccountViewModel : ObservableObject
 {
     private readonly IDeepSeekAccountService _accountService;
     private readonly IDeepSeekApiKeyProvider _apiKeyProvider;
+    private readonly IExternalLinkLauncher _linkLauncher;
     private string? _apiKey;
     private bool _hasBalanceResult;
 
@@ -29,14 +31,18 @@ public sealed partial class AccountViewModel : ObservableObject
 
     public AccountViewModel(
         IDeepSeekAccountService accountService,
-        IDeepSeekApiKeyProvider apiKeyProvider)
+        IDeepSeekApiKeyProvider apiKeyProvider,
+        IExternalLinkLauncher linkLauncher)
     {
         _accountService = accountService;
         _apiKeyProvider = apiKeyProvider;
+        _linkLauncher = linkLauncher;
         Balances = new ObservableCollection<DeepSeekBalanceInfo>();
+        OpenTopUpCommand = new RelayCommand(OpenTopUp);
     }
 
     public ObservableCollection<DeepSeekBalanceInfo> Balances { get; }
+    public IRelayCommand OpenTopUpCommand { get; }
     public bool HasApiKey => _apiKey is not null;
     public bool HasBalances => Balances.Count > 0;
     public bool HasError => ErrorText is not null;
@@ -118,6 +124,8 @@ public sealed partial class AccountViewModel : ObservableObject
         StatusText = "查询失败";
         OnPropertyChanged(nameof(HasError));
     }
+
+    private void OpenTopUp() => _linkLauncher.Open(OfficialResource.DeepSeekTopUp);
 
     private static string MaskApiKey(string apiKey) => apiKey.Length <= 4
         ? new string('*', apiKey.Length)

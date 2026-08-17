@@ -137,6 +137,13 @@
             BorderThickness="0,1,0,0">
       <DockPanel Margin="18,9">
         <Button DockPanel.Dock="Right" MinWidth="82" Click="OnCloseClick" Content="关闭" />
+        <Button DockPanel.Dock="Right"
+                MinWidth="92"
+                Margin="0,0,8,0"
+                Command="{Binding OpenTopUpCommand}"
+                Content="官方充值"
+                ToolTip="在系统浏览器打开 DeepSeek 官方充值页面"
+                AutomationProperties.Name="打开 DeepSeek 官方充值页面" />
         <ProgressBar Width="120"
                      Height="3"
                      IsIndeterminate="True"

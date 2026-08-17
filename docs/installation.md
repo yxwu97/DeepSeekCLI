@@ -20,6 +20,10 @@
 
 Chat 只内嵌精确的官方 HTTPS origin。其他安全 HTTP(S) 链接在系统浏览器打开，危险协议被拒绝。系统浏览器与应用专用 Chat profile 不共享登录信息，因此外部浏览器登录不会自动回写应用内 Chat。
 
+## DeepSeek 账号
+
+“DeepSeek 账号”窗口可使用当前 Harness API Key 查询官方账户余额。“官方充值”按钮固定在系统默认浏览器打开 `https://platform.deepseek.com/top_up`；应用不会把 API Key、余额或其他账户数据附加到充值链接。充值页面的登录状态由系统浏览器独立管理。
+
 ## 安装引导
 
 未找到可用的全局 DSH，且 Node.js 或 npx 不可用时，主窗口会显示安装引导。也可在停止页或失败页手动打开引导。

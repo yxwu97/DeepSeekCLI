@@ -24,7 +24,7 @@ DeepSeek Harness Desktop 是面向 Windows 的 .NET 桌面宿主，为 DeepSeek 
 - 在 WebView2 中承载官方 Web UI，并限制主导航到已确认的本机服务。
 - 默认进入 Code，并可懒加载官方 DeepSeek Chat；两个页面在进程内保持实例，Chat 使用独立持久 profile。
 - Chat 仅内嵌精确官方 HTTPS origin，权限与下载默认拒绝，并支持二次确认后单独清除 Chat 登录信息。
-- 提供运行状态、诊断信息、本地日志、托盘和账户余额查询。
+- 提供运行状态、诊断信息、本地日志、托盘、账户余额查询和 DeepSeek 官方充值入口。
 - 提供详细日志、阶段/总耗时、5 分钟期限和手动操作入口的 Node.js/npx 安装引导。
 - 支持测试并切换本机 DSH 服务地址，包括 Owned 实例的受控非默认端口重启。
 - 自动 npx 路径跟随 npm 当前解析版本；“关于”窗口可只读查询 npm `latest`，不会自动安装或持久化版本。

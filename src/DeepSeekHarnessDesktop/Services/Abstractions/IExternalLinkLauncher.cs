@@ -6,6 +6,7 @@ public enum OfficialResource
     DshDocumentation,
     NpmPackage,
     DesktopGitHub,
+    DeepSeekTopUp,
 }
 
 public interface IExternalLinkLauncher
