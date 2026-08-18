@@ -4,8 +4,8 @@
 
 - 项目名称：DeepSeek Harness Desktop
 - 目标平台：Windows 10/11 x64
-- 文档版本：0.3
-- 更新日期：2026-08-17
+- 文档版本：0.7
+- 更新日期：2026-08-18
 - 项目目录：`E:\DeepSeekCLI`
 - 官方文档：<https://deepseek-harness.github.io/deepseek-harness/guide/quickstart>
 - 官方仓库：<https://github.com/deepseek-ai/deepseek-harness>
@@ -43,7 +43,7 @@
 - Web UI 内仍需选择工作区，选择前会话输入不可用。
 - DSH 当前处于 Developer Preview，后续版本可能存在不兼容变更。
 
-桌面宿主将官方命令收紧为 `npx -y @deepseek-ai/dsh@0.1.0-rc.6 web`：`-y` 避免无控制台时卡在首次安装确认，显式已验证版本避免 npm 静默切换到未经验证的预发布版本。
+Desktop 0.9 发布为 framework-dependent 轻量宿主，不携带 .NET、Node 或 DSH。应用启动后检查 WebView2、Node.js、npx 和 DSH；优先使用全局 `dsh.cmd`，其次复用当前用户 npx 缓存中校验通过的固定版本，只有两者都不存在时才经用户确认通过 `npx.cmd` 下载并启动。
 
 当前开发机环境：
 
@@ -55,13 +55,24 @@
 - .NET 8 Windows Desktop Runtime：已安装
 - 默认端口 `3080` 在检查时未被占用
 
-因此，首版默认使用以下命令启动：
+没有全局 DSH 时，客户端使用以下固定命令模板：
 
 ```powershell
 npx -y @deepseek-ai/dsh@0.1.0-rc.6 web
 ```
 
-不得在程序中硬编码 npm 缓存目录。npm 的 `_npx` 缓存哈希属于内部实现，升级或清理缓存后可能变化。
+客户端只枚举标准 `_npx` 根的直接子目录，并仅接受固定包名、固定版本、固定 `lib/bin.js` 映射和真实入口文件；缓存 id、包名、版本和入口均不能由用户配置。不自动全局安装软件，也不接受用户包名或任意 Shell 参数。
+
+### 3.1 本地开发启动
+
+完成一次 restore 后，在仓库根目录使用以下入口：
+
+```powershell
+dotnet build DeepSeekHarnessDesktop.sln -c Debug --no-restore -m:1
+dotnet run --project src/DeepSeekHarnessDesktop/DeepSeekHarnessDesktop.csproj --no-build
+```
+
+开发机必须安装 .NET 8 SDK、WebView2 和 Node.js LTS。普通 build/publish 不执行 npm；只有用户实际选择“准备并启动”且系统没有全局 DSH 时，运行中的客户端才会在确认后调用固定 npx 模板。
 
 ## 4. 技术方案
 
@@ -72,7 +83,7 @@ npx -y @deepseek-ai/dsh@0.1.0-rc.6 web
 - 配置存储：JSON
 - 日志：应用内文本日志和本地滚动日志文件
 - 测试：xUnit，必要时增加 WPF UI 自动化测试
-- 发布：`dotnet publish`，Windows x64 self-contained
+- 发布：`dotnet publish`，Windows x64 framework-dependent
 - 安装包：后续使用 WiX Toolset 或 MSIX
 
 不采用 Electron。该应用只需要一个原生控制栏、进程管理和 WebView2，WPF 的安装体积、启动速度和系统集成更合适。
@@ -190,8 +201,8 @@ Failed
 2. 校验工作目录存在且可访问。
 3. 检查配置的 Web URL 是否可访问并验证 DSH 页面身份。
 4. 若确认是 DSH，标记为外部实例并直接加载页面；若有未知 HTTP 服务，返回 `DSH-E205` 且不启动新进程。
-5. 检查 Node.js 和 npm/npx 是否可用。
-6. 以所选工作目录作为 `WorkingDirectory` 启动 DSH。
+5. 检查 PATH 中的全局 DSH；不存在时检查 Node.js 与 npx。
+6. 以所选工作目录作为 `WorkingDirectory`，启动全局 DSH 或固定版本 npx DSH。
 7. 异步捕获标准输出和标准错误。
 8. 从日志中识别 DSH 打印的 HTTP 地址。
 9. 若未识别到地址，则使用配置中的默认 URL。
@@ -203,16 +214,12 @@ Failed
 
 默认启动策略：
 
-1. 若设置中配置了自定义命令，则使用自定义命令。
-2. 若 PATH 中存在 `dsh.cmd`，执行 `dsh.cmd web`。
-3. 否则执行 `npx.cmd -y @deepseek-ai/dsh@0.1.0-rc.6 web`。
-4. 均不可用时显示 Node.js/npm 未安装或 PATH 配置错误。
+1. 若 `Launch.Mode` 为 `Custom`，只接受已存在的原生 `.exe`/`.com`，参数逐项写入 `ArgumentList`。
+2. Auto 优先解析 PATH 中的 `dsh.cmd`，参数固定为 `web [--port <数字>]`。
+3. 没有全局 DSH 时解析 PATH 中的 `npx.cmd`，参数固定为 `-y @deepseek-ai/dsh@0.1.0-rc.6 web [--port <数字>]`。
+4. 进程创建时保持挂起，先加入 `KILL_ON_JOB_CLOSE` Job Object，再恢复主线程。
 
-Windows 下 `.cmd` 启动脚本需要通过受控的 `cmd.exe /d /v:off /s /c` 子进程执行，以便重定向输出。默认 `.cmd` 只接收程序内置参数；工作目录通过 `ProcessStartInfo.WorkingDirectory` 设置，不拼接到 Shell 命令中。自定义模式首版只接受 `.exe`/`.com`，参数逐项加入 `ProcessStartInfo.ArgumentList`，不支持自定义 `.cmd`/`.bat`。
-
-首版不安装 Node.js、不全局安装或主动升级 DSH。默认启动的 `npx -y` 在缓存缺失时可以访问 npm registry 并写入当前用户缓存；这是“双击启动且无隐藏交互”的必要取舍，下载进度和失败原因必须显示在启动日志中。
-
-Desktop 0.6.1 将自动 npx 包规格固定为已验证的 `@deepseek-ai/dsh@0.1.0-rc.6`。npm `latest` 检查只提供信息，不得直接改变启动版本；升级该常量前必须完成真实启动、身份探测、停止和重启验证。
+`.cmd` 只能经过 `CmdCommandLineBuilder` 的固定模板。工作目录只通过 `ProcessStartInfo.WorkingDirectory` 传递；不扫描 npm cache，也不静默切换固定 DSH 版本。npm `latest` 仍是关于窗口中的只读信息。
 
 ### 7.3 服务就绪检测
 
@@ -334,7 +341,8 @@ Chat 使用独立 `ChatPageState`（未初始化、初始化、就绪、失败�
 - WebView2 禁止任意网页调用本机进程管理功能。
 - 首版不向网页注入宿主对象或执行自定义 JavaScript。
 - 不将用户选择的目录拼接进 Shell 命令。
-- 不安装 Node.js，不执行全局 npm 安装或主动升级；默认 `npx -y` 可以按启动请求填充当前用户缓存。
+- 客户端不安装或调用用户 Node/npm，不读取用户缓存；Auto 只使用随包且校验通过的私有运行时。
+- 归档解包拒绝穿越、绝对路径、冒号/ADS、重复/额外项、reparse 目标及数量/大小超限。
 - 不停止未由当前应用创建的进程。
 - 外部链接使用系统浏览器打开。
 - 应用使用普通用户权限运行，不请求管理员权限。
@@ -378,7 +386,7 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 ### 阶段一：最小闭环
 
 - 创建 WPF 项目和 WebView2
-- 启动 `npx -y @deepseek-ai/dsh@0.1.0-rc.6 web`
+- 检查系统环境，启动全局 DSH 或固定版本 npx DSH
 - 捕获日志
 - 探测 `127.0.0.1:3080`
 - 服务就绪后加载页面
@@ -400,7 +408,7 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 - WebView2 Runtime 检测
 - 自动化测试
 - 应用图标和版本信息
-- self-contained 发布和安装包
+- framework-dependent 轻量发布和安装说明
 
 ## 15. 测试要求
 
@@ -426,7 +434,7 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 - 已有外部实例时不创建或停止额外进程
 - 端口被非 HTTP 服务占用时给出明确错误
 - 端口被未知 HTTP 服务占用时返回 `DSH-E205`，不导航、不创建或结束进程
-- 无 npx 缓存时不会等待不可见的交互确认
+- 无 Node/npm、无网络且用户缓存损坏时仍可从完整发布包启动
 - 外部 DSH 连续失联后自动离开 `RunningExternal`
 
 ### 15.3 UI 验证
@@ -441,7 +449,7 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 
 满足以下条件即可认为首个版本完成：
 
-1. 双击 EXE 后，无需打开终端或回答 npx 控制台提示即可启动 DSH。
+1. 双击完整发布包中的 EXE 后，无需安装 Node/npm、打开终端或联网解析依赖即可启动 DSH。
 2. DSH 就绪后，应用内自动显示官方 Web UI。
 3. 用户能够选择工作目录，并在重启应用后继续使用该目录。
 4. 页面刷新不重启 DSH。
@@ -465,6 +473,8 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 - 崩溃报告导出
 
 只有在单实例启动、停止和重启稳定后，才考虑加入多实例支持。
+
+以下第 18 节记录 0.2.0 至 0.6.1 的历史增量；Desktop 0.9 重新采用受控的固定版本 npx 路径，当前约束以第 19 节为准。
 
 ## 18. Desktop 0.2.0 可用性增量
 
@@ -509,3 +519,10 @@ npx.cmd -y @deepseek-ai/dsh@0.1.0-rc.6 web --port <1-65535>
 - `DSH-E208`：候选本机 DSH 地址不可达。
 
 `DSH-E101`、`DSH-E201` 至 `DSH-E205` 保持原语义。更新检查错误只显示在关于窗口，不进入 Harness 状态机。
+
+## 19. Desktop 0.9.0 轻量环境准备
+
+- 发布为 framework-dependent ZIP，要求目标机预装 .NET 8 Desktop Runtime；发布包不得携带 .NET、Node、npm、npx、DSH cache 或用户数据。
+- 主窗口先显示，再检查 WebView2、Node.js、npx、全局 DSH 和可复用的固定版本缓存。安装引导的主按钮按当前首个缺失项打开官方安装页，环境满足后才启动 DSH。
+- 全局 DSH 优先，其次用 PATH 中的 Node 直接启动校验通过的缓存入口；只有没有可复用安装时才进入带用户确认的精确版本 npx 路径。npm DNS、TLS、registry 和权限错误映射为稳定的 `DSH-E211` 至 `DSH-E214`。
+- 发布门禁限制 ZIP 不超过 30 MiB、主 EXE 不超过 5 MiB，并继续验证进程所有权、HTTP 身份、loopback/同源与日志脱敏边界。

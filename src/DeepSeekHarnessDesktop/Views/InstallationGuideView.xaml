@@ -30,42 +30,28 @@
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="*" />
         <ColumnDefinition Width="*" />
-        <ColumnDefinition Width="1.35*" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="1.25*" />
       </Grid.ColumnDefinitions>
       <StackPanel Margin="0,0,16,0">
-        <TextBlock FontWeight="SemiBold" Text="1  Node.js" />
-        <TextBlock Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" Text="{Binding NodeStatusText}" />
+        <TextBlock FontWeight="SemiBold" Text="1  WebView2" />
+        <TextBlock Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" Text="{Binding WebView2StatusText}" TextWrapping="Wrap" />
       </StackPanel>
       <StackPanel Grid.Column="1" Margin="0,0,16,0">
-        <TextBlock FontWeight="SemiBold" Text="2  npx" />
-        <TextBlock Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" Text="{Binding NpxStatusText}" />
+        <TextBlock FontWeight="SemiBold" Text="2  Node.js" />
+        <TextBlock Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" Text="{Binding NodeStatusText}" TextWrapping="Wrap" />
       </StackPanel>
-      <StackPanel Grid.Column="2">
-        <TextBlock FontWeight="SemiBold" Text="3  DSH" />
+      <StackPanel Grid.Column="2" Margin="0,0,16,0">
+        <TextBlock FontWeight="SemiBold" Text="3  npx" />
+        <TextBlock Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" Text="{Binding NpxStatusText}" TextWrapping="Wrap" />
+      </StackPanel>
+      <StackPanel Grid.Column="3">
+        <TextBlock FontWeight="SemiBold" Text="4  DSH" />
         <TextBlock Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" Text="{Binding DshStatusText}" TextWrapping="Wrap" />
       </StackPanel>
     </Grid>
 
-    <Expander Grid.Row="3" Margin="0,0,0,12" Header="手动安装与启动">
-      <Border Margin="0,8,0,0" Padding="10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#FAFAFA">
-        <StackPanel>
-          <TextBlock TextWrapping="Wrap" Text="1. 安装 Node.js LTS x64，重新打开终端并点击“重新检查”。" />
-          <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Text="2. 执行 node --version 和 npx --version；仍未识别时重启本应用。" />
-          <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Text="3. 在工作目录打开 PowerShell，执行下方命令并保持终端运行。" />
-          <TextBlock Margin="0,4,0,8" TextWrapping="Wrap" Text="4. 返回本应用；检测到的手动服务只作为外部实例连接，不会被停止或重启。" />
-          <Grid>
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-            <TextBox IsReadOnly="True" Padding="8,6" FontFamily="Consolas" Text="{Binding ManualInstallCommand, Mode=OneWay}" />
-            <StackPanel Grid.Column="1" Orientation="Horizontal">
-              <Button Command="{Binding CopyManualInstallCommand}" Content="复制命令" ToolTip="复制手动 npx 命令" AutomationProperties.Name="复制手动安装命令" />
-              <Button Command="{Binding OpenPowerShellCommand}" Content="打开 PowerShell" ToolTip="在当前工作目录打开 PowerShell，不自动执行命令" AutomationProperties.Name="打开 PowerShell" />
-            </StackPanel>
-          </Grid>
-        </StackPanel>
-      </Border>
-    </Expander>
-
-    <Border Grid.Row="4" MinHeight="120" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#FAFAFA" Padding="8">
+    <Border Grid.Row="3" Grid.RowSpan="2" MinHeight="120" Margin="0,0,0,12" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#FAFAFA" Padding="8">
       <ListBox x:Name="InstallLogList" ItemsSource="{Binding RecentLogs}" BorderThickness="0" Background="Transparent"
                FontFamily="Consolas" FontSize="12" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                ScrollViewer.ScrollChanged="OnLogScrollChanged" AutomationProperties.Name="DSH 安装过程日志">
@@ -80,9 +66,7 @@
     <Grid Grid.Row="5" Margin="0,12,0,0">
       <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
       <WrapPanel>
-        <Button Command="{Binding OpenNodeDownloadCommand}" Content="Node.js 下载" ToolTip="打开 Node.js 官方下载页" AutomationProperties.Name="打开 Node.js 官方下载页" />
         <Button Command="{Binding OpenDocumentationCommand}" Content="DSH 文档" ToolTip="打开 DSH 官方文档" AutomationProperties.Name="打开 DSH 官方文档" />
-        <Button Command="{Binding OpenNpmPackageCommand}" Content="npm 包" ToolTip="打开 DSH 官方 npm 页面" AutomationProperties.Name="打开 DSH npm 包页面" />
         <Button Command="{Binding CopyLogsCommand}" Content="复制日志" ToolTip="复制已经脱敏的安装日志" AutomationProperties.Name="复制安装日志" />
       </WrapPanel>
       <Grid Grid.Row="1" Margin="0,8,0,0">
@@ -91,7 +75,7 @@
         <StackPanel Grid.Column="1" Orientation="Horizontal">
           <Button Command="{Binding CloseCommand}" Content="返回" />
           <Button Command="{Binding CancelCommand}" Content="取消" />
-          <Button Style="{StaticResource PrimaryButtonStyle}" Command="{Binding DownloadAndStartCommand}" Content="准备并启动" />
+          <Button Style="{StaticResource PrimaryButtonStyle}" Command="{Binding DownloadAndStartCommand}" Content="{Binding PrimaryActionText}" />
         </StackPanel>
       </Grid>
     </Grid>

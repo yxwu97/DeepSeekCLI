@@ -11,17 +11,20 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
     private readonly EnvironmentPathProvider _pathProvider;
     private readonly Func<string?> _getWebView2Version;
     private readonly Func<string, CancellationToken, Task<string?>> _getExecutableVersion;
+    private readonly NpxDshCacheLocator _cacheLocator;
 
     public DependencyDiagnosticsService(
         Func<string, string?>? getEnvironmentVariable = null,
         Func<string?>? getWebView2Version = null,
-        Func<string, CancellationToken, Task<string?>>? getExecutableVersion = null)
+        Func<string, CancellationToken, Task<string?>>? getExecutableVersion = null,
+        NpxDshCacheLocator? cacheLocator = null)
     {
         _pathProvider = getEnvironmentVariable is null
             ? new EnvironmentPathProvider()
             : new EnvironmentPathProvider((name, _) => getEnvironmentVariable(name));
         _getWebView2Version = getWebView2Version ?? (() => CoreWebView2Environment.GetAvailableBrowserVersionString());
         _getExecutableVersion = getExecutableVersion ?? GetExecutableVersionAsync;
+        _cacheLocator = cacheLocator ?? new NpxDshCacheLocator();
     }
 
     public async Task<DependencyDiagnosticsResult> DiagnoseAsync(CancellationToken cancellationToken)
@@ -34,6 +37,18 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
         var npxPath = FindOnPath("npx.cmd", path);
         var dsh = await DiagnoseGlobalDshAsync(dshPath, cancellationToken);
         var node = await DiagnoseNodeAsync(nodePath, cancellationToken);
+        if (dshPath is null && node.Status == DependencyStatus.Available)
+        {
+            var cachedDsh = await _cacheLocator.FindAsync(nodePath, cancellationToken);
+            if (cachedDsh is not null)
+            {
+                dsh = new DependencyCheck(
+                    DependencyStatus.Available,
+                    cachedDsh.EntryPointPath,
+                    cachedDsh.Version,
+                    "Validated npx cache installation.");
+            }
+        }
         var npx = npxPath is null
             ? new DependencyCheck(DependencyStatus.Missing, Detail: "npx.cmd was not found on PATH.")
             : new DependencyCheck(DependencyStatus.Available, npxPath);

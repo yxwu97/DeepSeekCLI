@@ -19,7 +19,7 @@ DeepSeek Harness Desktop 是面向 Windows 10/11 x64 的原生桌面宿主。应
 | 依赖注入 | Microsoft.Extensions.DependencyInjection |
 | 日志 | Microsoft.Extensions.Logging + Serilog |
 | 测试 | xUnit，单元测试与 Windows 集成测试分开 |
-| 发布 | `win-x64`、self-contained、single-file ZIP |
+| 发布 | `win-x64`、framework-dependent 轻量 ZIP；目标机需安装 .NET 8 Desktop Runtime |
 
 - `Nullable`、隐式 using 和警告即错误由 `Directory.Build.props` 统一启用。
 - NuGet 版本统一维护在 `Directory.Packages.props`；项目文件只声明包引用，不重复填写版本。
@@ -70,7 +70,9 @@ DeepSeek Harness Desktop 是面向 Windows 10/11 x64 的原生桌面宿主。应
 - 工作目录通过 `ProcessStartInfo.WorkingDirectory` 传递，不能拼进 Shell 命令。
 - 参数优先使用 `ProcessStartInfo.ArgumentList`。`.cmd` 仅通过 `CmdCommandLineBuilder` 的受控路径执行，不允许接收未经验证的用户 Shell 文本。
 - 自定义启动模式只接受已存在的 `.exe` 或 `.com`；不要在未补齐威胁模型和测试前放宽到 `.cmd`、`.bat` 或任意命令行。
-- 不硬编码 npm `_npx` 缓存目录，不自动全局安装 Node.js/DSH；自动 npx 只允许受控的官方包名和参数模板，不持久化或静默切换版本配置。
+- Auto 启动依次使用 PATH 中可执行的 `dsh.cmd`、当前用户 npm `_npx` 缓存中经固定包名/版本/bin 映射校验的 DSH、PATH 中的 `npx.cmd`。缓存命中时通过 PATH 中的 `node.exe` 直接执行固定 `lib/bin.js`、`web` 和可选纯数字端口参数，不访问 registry。
+- 缓存发现只允许枚举标准 `_npx` 根的直接子目录，不硬编码 cache id，不接受 manifest 提供的任意入口，不执行非精确 `@deepseek-ai/dsh@0.1.0-rc.6`。不自动全局安装 Node.js/DSH，不接受用户提供的 npm 包名或 Shell 参数；确认没有可复用安装后，通过 npx 下载固定 DSH 前必须取得用户确认。
+- 缺少 WebView2、Node.js 或 npx 时，安装引导一次只展示当前缺失项，并仅打开对应官方安装页面；安装程序由用户确认和执行，返回应用后重新检查系统与用户 PATH。
 
 ### 5.4 服务身份与 WebView2
 
@@ -106,6 +108,7 @@ DeepSeek Harness Desktop 是面向 Windows 10/11 x64 的原生桌面宿主。应
 - 进程启动/停止、进程树、端口、HTTP 探测：补充或运行 IntegrationTests。
 - ViewModel、UI 命令或状态展示：至少覆盖命令可用性和状态映射；可见布局变化需手工检查 WPF 窗口。
 - 发布、依赖、版本或安装说明变化：运行完整发布门禁。
+- 发布脚本变化必须验证 framework-dependent 包不包含 .NET、Node、npm、npx、DSH 缓存或用户数据，并保持发布 ZIP 和主 EXE 的体积门禁。缓存发现变化必须覆盖精确版本/bin 校验、错误候选拒绝、全局 DSH 优先和无缓存 npx 回退。
 
 常用命令（仓库根目录 PowerShell）：
 
@@ -121,7 +124,7 @@ dotnet test DeepSeekHarnessDesktop.sln -c Release --no-restore -m:1
 .\eng\Verify-Release.ps1
 ```
 
-该脚本会构建 Debug/Release、运行单元和集成测试、生成 single-file ZIP，并校验版本元数据和包内容。它使用 `--no-restore`，执行前必须完成 restore。
+该脚本会构建 Debug/Release、运行单元和集成测试、生成 framework-dependent ZIP，并校验版本、包内容和体积上限。它使用 `--no-restore`，执行前必须完成 restore。
 
 ## 8. 版本与文档（强制）
 

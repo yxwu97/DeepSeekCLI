@@ -18,6 +18,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
     private readonly AppSettings _settings;
     private readonly string _desktopVersion;
     private Uri? _lastNavigatedUri;
+    private Task _navigationTask = Task.CompletedTask;
     private bool _chatInitializationRequested;
     private AppContentMode _currentMode = AppContentMode.Code;
     private ChatPageSnapshot _chatSnapshot = ChatPageSnapshot.Initial;
@@ -27,6 +28,9 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private string _workspacePath;
+
+    [ObservableProperty]
+    private HarnessError? _initializationError;
 
     public MainWindowViewModel(
         IHarnessLifecycleCoordinator coordinator,
@@ -64,7 +68,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         StartCommand = new AsyncRelayCommand(
-            () => coordinator.StartAsync(CancellationToken.None),
+            StartOrOpenGuideAsync,
             () => IsCodeMode && State is HarnessRuntimeState.Stopped or HarnessRuntimeState.Failed);
         StopCommand = new AsyncRelayCommand(
             () => coordinator.StopAsync(CancellationToken.None),
@@ -122,7 +126,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         ChatPageState.Failed => "DeepSeek Chat 加载失败",
         ChatPageState.ClearingData => "正在清除 Chat 登录信息",
         _ => "DeepSeek Chat",
-    } : State switch
+    } : InitializationError is not null ? "初始化失败" : State switch
     {
         HarnessRuntimeState.Initializing => "正在初始化",
         HarnessRuntimeState.Starting => "正在启动 DeepSeek Harness",
@@ -137,6 +141,8 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         ? ChatSnapshot.Error is null
             ? ChatSnapshot.StatusMessage
             : $"{ChatSnapshot.Error.Code} · {ChatSnapshot.Error.UserMessage}"
+        : InitializationError is not null
+        ? $"{InitializationError.Code} · {InitializationError.UserMessage}"
         : Snapshot.Error is null
         ? Snapshot.StatusMessage
         : $"{Snapshot.Error.Code} · {Snapshot.Error.UserMessage}";
@@ -153,6 +159,19 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
     public string DesktopVersion => $"MVP {_desktopVersion}";
     public ObservableCollection<ProcessOutputLine> RecentLogs { get; }
     public InstallationGuideViewModel? InstallationGuide { get; }
+
+    public void ReportInitializationFailure(HarnessError error)
+    {
+        InitializationError = error;
+        OnPropertyChanged(nameof(StatusTitle));
+        OnPropertyChanged(nameof(StatusDetail));
+    }
+
+    public Task WaitForCodeNavigationAsync(Uri uri, CancellationToken cancellationToken)
+    {
+        var task = _lastNavigatedUri == uri ? _navigationTask : Task.CompletedTask;
+        return task.WaitAsync(cancellationToken);
+    }
 
     public IAsyncRelayCommand StartCommand { get; }
     public IAsyncRelayCommand StopCommand { get; }
@@ -191,6 +210,18 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         ? _codeWebView.ReloadAsync(CancellationToken.None)
         : _chatWebView?.ReloadAsync(CancellationToken.None) ?? Task.CompletedTask;
 
+    private Task StartOrOpenGuideAsync()
+    {
+        if (_settings.Launch.Mode == LaunchMode.Auto
+            && InstallationGuide is { HasInstalledDsh: false } guide)
+        {
+            guide.Activate();
+            return Task.CompletedTask;
+        }
+
+        return _coordinator.StartAsync(CancellationToken.None);
+    }
+
     private async Task ClearChatDataAsync()
     {
         if (_chatWebView is null || _confirmation?.ConfirmClearChatData() != true)
@@ -225,7 +256,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         if (IsRunning && snapshot.ServiceUri is { } uri && uri != _lastNavigatedUri)
         {
             _lastNavigatedUri = uri;
-            _ = NavigateAsync(uri);
+            _navigationTask = NavigateAsync(uri);
         }
         else if (!IsRunning)
         {

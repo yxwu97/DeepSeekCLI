@@ -39,9 +39,12 @@ public sealed class WindowsJobObject : IDisposable
     }
 
     public void Assign(Process process)
+        => Assign(process.Handle);
+
+    internal void Assign(nint processHandle)
     {
         var handle = _handle ?? throw new ObjectDisposedException(nameof(WindowsJobObject));
-        if (!NativeMethods.AssignProcessToJobObject(handle, process.Handle))
+        if (!NativeMethods.AssignProcessToJobObject(handle, processHandle))
         {
             throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed.");
         }

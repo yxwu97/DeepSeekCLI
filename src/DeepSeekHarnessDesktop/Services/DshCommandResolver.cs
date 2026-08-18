@@ -9,34 +9,53 @@ namespace DeepSeekHarnessDesktop.Services;
 public sealed class DshCommandResolver : IDshCommandResolver
 {
     private readonly EnvironmentPathProvider _pathProvider;
+    private readonly NpxDshCacheLocator _cacheLocator;
 
-    public DshCommandResolver(Func<string, string?>? getEnvironmentVariable = null)
+    public DshCommandResolver(
+        Func<string, string?>? getEnvironmentVariable = null,
+        NpxDshCacheLocator? cacheLocator = null)
     {
         _pathProvider = getEnvironmentVariable is null
             ? new EnvironmentPathProvider()
             : new EnvironmentPathProvider((name, _) => getEnvironmentVariable(name));
+        _cacheLocator = cacheLocator ?? new NpxDshCacheLocator();
     }
 
-    public Task<DshLaunchOptions> ResolveAsync(AppSettings settings, CancellationToken cancellationToken)
+    public async Task<DshLaunchOptions> ResolveAsync(AppSettings settings, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ValidateWorkspace(settings.WorkspacePath);
 
-        var executable = settings.Launch.Mode == LaunchMode.Custom
+        var customExecutable = settings.Launch.Mode == LaunchMode.Custom
             ? ResolveCustom(settings.Launch.ExecutablePath)
-            : FindOnPath("dsh.cmd") ?? FindOnPath("npx.cmd");
+            : null;
+        var globalDsh = settings.Launch.Mode == LaunchMode.Auto ? FindOnPath("dsh.cmd") : null;
+        var node = globalDsh is null && settings.Launch.Mode == LaunchMode.Auto ? FindOnPath("node.exe") : null;
+        var cachedDsh = globalDsh is null
+            ? await _cacheLocator.FindAsync(node, cancellationToken)
+            : null;
+        var npx = globalDsh is null && cachedDsh is null && settings.Launch.Mode == LaunchMode.Auto
+            ? FindOnPath("npx.cmd")
+            : null;
+        var executable = customExecutable ?? globalDsh ?? cachedDsh?.NodePath ?? npx;
         if (executable is null)
         {
-            throw Error("DSH-E101", "未找到 dsh 或 npx，请检查 Node.js 安装", "Neither dsh.cmd nor npx.cmd was found on PATH.", false);
+            throw Error(
+                "DSH-E101",
+                "未找到 dsh 或 npx，请先安装 Node.js",
+                "Neither dsh.cmd nor npx.cmd was found on PATH.",
+                false);
         }
 
-        IReadOnlyList<string> arguments = settings.Launch.Mode == LaunchMode.Custom
+        IReadOnlyList<string> arguments = customExecutable is not null
             ? settings.Launch.Arguments
-            : string.Equals(Path.GetFileName(executable), "dsh.cmd", StringComparison.OrdinalIgnoreCase)
+            : globalDsh is not null
                 ? BuildDshArguments(settings.ServiceUri)
-                : BuildNpxArguments(settings.ServiceUri);
+                : cachedDsh is not null
+                    ? BuildCachedDshArguments(cachedDsh.EntryPointPath, settings.ServiceUri)
+                    : BuildNpxArguments(settings.ServiceUri);
 
-        return Task.FromResult(new DshLaunchOptions
+        return new DshLaunchOptions
         {
             ExecutablePath = executable,
             Arguments = arguments,
@@ -48,7 +67,7 @@ public sealed class DshCommandResolver : IDshCommandResolver
                 ["DSH_DESKTOP_HOST"] = "1",
                 ["DSH_DESKTOP_VERSION"] = GetDesktopVersion(),
             },
-        });
+        };
     }
 
     private static IReadOnlyList<string> BuildDshArguments(Uri serviceUri)
@@ -60,12 +79,14 @@ public sealed class DshCommandResolver : IDshCommandResolver
 
     private static IReadOnlyList<string> BuildNpxArguments(Uri serviceUri)
     {
-        var arguments = new List<string>
-        {
-            "-y",
-            DshPackageMetadata.ValidatedPackageSpec,
-            "web",
-        };
+        var arguments = new List<string> { "-y", DshPackageMetadata.ValidatedPackageSpec, "web" };
+        AppendPortIfNeeded(arguments, serviceUri);
+        return arguments;
+    }
+
+    private static IReadOnlyList<string> BuildCachedDshArguments(string entryPointPath, Uri serviceUri)
+    {
+        var arguments = new List<string> { entryPointPath, "web" };
         AppendPortIfNeeded(arguments, serviceUri);
         return arguments;
     }
@@ -91,7 +112,9 @@ public sealed class DshCommandResolver : IDshCommandResolver
             return null;
         }
 
-        foreach (var entry in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var entry in path.Split(
+            Path.PathSeparator,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             try
             {
@@ -101,9 +124,9 @@ public sealed class DshCommandResolver : IDshCommandResolver
                     return candidate;
                 }
             }
-            catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+            catch (Exception exception) when (
+                exception is ArgumentException or IOException or UnauthorizedAccessException)
             {
-                // Ignore malformed or inaccessible PATH entries and continue searching.
             }
         }
 

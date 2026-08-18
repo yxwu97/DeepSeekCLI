@@ -5,6 +5,7 @@ using DeepSeekHarnessDesktop.Views;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Threading;
 
@@ -19,10 +20,12 @@ public partial class App : System.Windows.Application
     private Models.AppSettings? _settings;
     private ILogger? _logger;
     private TrayIconService? _trayIcon;
+    private CancellationTokenSource? _startupCts;
+    private Task? _initializationTask;
+    private Task? _diagnosticsTask;
     private int _shutdownStarted;
     private bool _shutdownCompleted;
     private bool _exitRequested;
-
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -30,7 +33,11 @@ public partial class App : System.Windows.Application
         var redactor = new SensitiveDataRedactor();
         _logService = new LogService(redactor: redactor);
         _logger = _logService.CreateLogger(nameof(App));
-        _logger.LogInformation(new EventId(1000), "DeepSeek Harness Desktop is starting.");
+        var timeProvider = TimeProvider.System;
+        _logger.LogInformation(
+            new EventId(1000),
+            "DeepSeek Harness Desktop is starting. Base directory: {BaseDirectory}.",
+            AppContext.BaseDirectory);
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
 
@@ -44,18 +51,28 @@ public partial class App : System.Windows.Application
         }
 
         _settingsService = new SettingsService(_logService.CreateLogger<SettingsService>());
-        _settings = await _settingsService.LoadAsync(CancellationToken.None);
-        var diagnosticsService = new DependencyDiagnosticsService();
-        var diagnostics = await diagnosticsService.DiagnoseAsync(CancellationToken.None);
-        foreach (var error in diagnostics.Errors)
+        try
         {
-            _logger.LogWarning(new EventId(1010), "{Code}: {Message}", error.Code, error.TechnicalMessage);
+            _settings = await _settingsService.LoadAsync(CancellationToken.None);
         }
+        catch (Models.HarnessException exception)
+        {
+            _logger.LogError(
+                new EventId(1110),
+                exception,
+                "{Code}: Settings load failed; defaults will be used.",
+                exception.Error.Code);
+            _settings = new Models.AppSettings();
+        }
+        var cacheLocator = new NpxDshCacheLocator();
+        var diagnosticsService = new DependencyDiagnosticsService(cacheLocator: cacheLocator);
+        var diagnostics = CreateInitialDiagnostics();
         _services = new ServiceCollection()
             .AddSingleton(_settings)
             .AddSingleton(redactor)
             .AddSingleton(diagnostics)
             .AddSingleton<IDependencyDiagnosticsService>(diagnosticsService)
+            .AddSingleton(cacheLocator)
             .AddSingleton(_settingsService)
             .AddSingleton(new HttpClient { Timeout = TimeSpan.FromSeconds(15) })
             .AddSingleton<IDeepSeekApiKeyProvider, DeepSeekApiKeyProvider>()
@@ -67,13 +84,13 @@ public partial class App : System.Windows.Application
             .AddSingleton<IClipboardService, SystemClipboardService>()
             .AddSingleton<ITerminalLauncher, PowerShellTerminalLauncher>()
             .AddSingleton<IUserConfirmationService, UserConfirmationService>()
-            .AddSingleton(TimeProvider.System)
+            .AddSingleton(timeProvider)
             .AddSingleton<TrayIconService>()
             .AddSingleton<HarnessStateMachine>()
             .AddSingleton(_logService.CreateLogger<RecentLogBuffer>())
             .AddSingleton<IRecentLogBuffer, RecentLogBuffer>()
             .AddSingleton<IWorkspacePicker, WorkspacePicker>()
-            .AddSingleton<IDshCommandResolver, DshCommandResolver>()
+            .AddSingleton<IDshCommandResolver>(_ => new DshCommandResolver(cacheLocator: cacheLocator))
             .AddSingleton<IHarnessProcessManager, HarnessProcessManager>()
             .AddSingleton<IHarnessHealthMonitor, HarnessHealthMonitor>()
             .AddSingleton<IRuntimeHealthWatcher, RuntimeHealthWatcher>()
@@ -98,23 +115,109 @@ public partial class App : System.Windows.Application
         _singleInstance.StartListening(() => Dispatcher.InvokeAsync(
             ActivateMainWindow,
             DispatcherPriority.Send).Task);
+        window.ContentRendered += OnMainWindowContentRendered;
         window.Show();
+    }
+
+    private void OnMainWindowContentRendered(object? sender, EventArgs e)
+    {
+        if (sender is System.Windows.Window window)
+        {
+            window.ContentRendered -= OnMainWindowContentRendered;
+        }
+        _startupCts = new CancellationTokenSource();
+        _initializationTask = InitializeAfterShellAsync(_startupCts.Token);
+    }
+
+    private async Task InitializeAfterShellAsync(CancellationToken cancellationToken)
+    {
+        var services = _services ?? throw new InvalidOperationException("Application services are unavailable.");
+        var webView = services.GetRequiredService<ICodeWebViewService>();
+        var lifecycle = services.GetRequiredService<IHarnessLifecycleCoordinator>();
+        var viewModel = services.GetRequiredService<MainWindowViewModel>();
         try
         {
-            await _services.GetRequiredService<ICodeWebViewService>()
-                .InitializeAsync(CancellationToken.None);
-            await _services.GetRequiredService<IHarnessLifecycleCoordinator>()
-                .InitializeAsync(CancellationToken.None);
+            var webViewTask = InitializeWebViewAsync(webView, cancellationToken);
+            _diagnosticsTask = RefreshDiagnosticsAsync(cancellationToken);
+            await _diagnosticsTask;
+            var lifecycleTask = lifecycle.InitializeAsync(cancellationToken);
+            await Task.WhenAll(webViewTask, lifecycleTask);
+            if (lifecycle.Current.State is (Models.HarnessRuntimeState.RunningOwned
+                or Models.HarnessRuntimeState.RunningExternal)
+                && lifecycle.Current.ServiceUri is { } uri)
+            {
+                await viewModel.WaitForCodeNavigationAsync(uri, cancellationToken);
+            }
+            else if (lifecycle.Current.Error is { } lifecycleError)
+            {
+                _logger?.LogError(
+                    new EventId(1209),
+                    "Startup initialization failed with {Code}.",
+                    lifecycleError.Code);
+            }
         }
-        catch (Models.HarnessException exception)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            System.Windows.MessageBox.Show(
-                window,
-                $"{exception.Error.Code}\n{exception.Error.UserMessage}",
-                "DeepSeek Harness Desktop",
-                System.Windows.MessageBoxButton.OK,
-                System.Windows.MessageBoxImage.Error);
         }
+        catch (Exception exception)
+        {
+            var error = exception is Models.HarnessException harnessException
+                ? harnessException.Error
+                : new Models.HarnessError(
+                    "APP-E501",
+                    "桌面宿主初始化失败",
+                    exception.Message,
+                    true,
+                    exception);
+            viewModel.ReportInitializationFailure(error);
+            _logger?.LogError(new EventId(1210), exception, "{Code}: Startup initialization failed.", error.Code);
+        }
+    }
+
+    private async Task InitializeWebViewAsync(
+        ICodeWebViewService webView,
+        CancellationToken cancellationToken)
+    {
+        await webView.InitializeAsync(cancellationToken);
+    }
+
+    private async Task RefreshDiagnosticsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var services = _services ?? throw new InvalidOperationException("Application services are unavailable.");
+            var diagnostics = await services.GetRequiredService<IDependencyDiagnosticsService>()
+                .DiagnoseAsync(cancellationToken);
+            foreach (var error in diagnostics.Errors)
+            {
+                _logger?.LogWarning(new EventId(1010), "{Code}: {Message}", error.Code, error.TechnicalMessage);
+            }
+            await Dispatcher.InvokeAsync(() =>
+            {
+                services.GetRequiredService<AboutViewModel>().Diagnostics = diagnostics;
+                services.GetRequiredService<InstallationGuideViewModel>().Diagnostics = diagnostics;
+            });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(new EventId(1011), exception, "Background dependency diagnostics failed.");
+        }
+    }
+
+    private static Models.DependencyDiagnosticsResult CreateInitialDiagnostics()
+    {
+        var pending = new Models.DependencyCheck(Models.DependencyStatus.Missing, Detail: "正在检查");
+        return new Models.DependencyDiagnosticsResult(
+            Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "unknown",
+            Environment.Version.ToString(),
+            pending,
+            new Models.DependencyCheck(Models.DependencyStatus.Missing, Detail: "尚未检查"),
+            new Models.DependencyCheck(Models.DependencyStatus.Missing, Detail: "尚未检查"),
+            new Models.DependencyCheck(Models.DependencyStatus.Missing, Detail: "尚未检查"),
+            []);
     }
 
     private async void OnMainWindowClosing(object? sender, CancelEventArgs e)
@@ -160,6 +263,26 @@ public partial class App : System.Windows.Application
 
     private async Task CleanupPrimaryInstanceAsync()
     {
+        _startupCts?.Cancel();
+        foreach (var task in new[] { _initializationTask, _diagnosticsTask })
+        {
+            if (task is null || task.IsCompleted)
+            {
+                continue;
+            }
+            try
+            {
+                await task;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+        _startupCts?.Dispose();
+        _startupCts = null;
+        _initializationTask = null;
+        _diagnosticsTask = null;
+
         if (_settingsService is not null && _settings is not null)
         {
             try
@@ -258,6 +381,9 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _startupCts?.Cancel();
+        _startupCts?.Dispose();
+        _startupCts = null;
         if (_services is not null)
         {
             _services.DisposeAsync().AsTask().GetAwaiter().GetResult();

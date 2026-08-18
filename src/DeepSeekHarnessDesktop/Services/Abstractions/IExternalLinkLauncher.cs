@@ -2,6 +2,7 @@ namespace DeepSeekHarnessDesktop.Services.Abstractions;
 
 public enum OfficialResource
 {
+    WebView2Download,
     NodeDownload,
     DshDocumentation,
     NpmPackage,

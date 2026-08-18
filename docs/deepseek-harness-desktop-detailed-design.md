@@ -4,13 +4,13 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | 1.3 |
-| 更新日期 | 2026-08-17 |
-| 目标版本 | Desktop 0.4.0 |
+| 文档版本 | 1.4 |
+| 更新日期 | 2026-08-18 |
+| 目标版本 | Desktop 0.8.0 |
 | 目标平台 | Windows 10/11 x64 |
 | 桌面框架 | .NET 8 / WPF |
 | 网页宿主 | Microsoft Edge WebView2 |
-| 默认 DSH 命令 | `npx -y @deepseek-ai/dsh@0.1.0-rc.6 web` |
+| 默认 DSH 入口 | 随包私有 `node.exe` + 托管 DSH `0.1.0-rc.6` CLI |
 | 默认服务地址 | `http://127.0.0.1:3080/` |
 
 相关文档：
@@ -54,7 +54,7 @@
 | DD-007 | URL 优先从 DSH 输出解析 | DSH 可能改变端口，不能只依赖 `3080` |
 | DD-008 | 配置使用版本化 JSON | 易读、可迁移、无需引入数据库 |
 | DD-009 | UI 与进程服务通过接口解耦 | 便于测试状态机和异常路径 |
-| DD-010 | MVP 不做全局安装或隐式升级；npx 回退固定 DSH 版本并允许按需填充当前用户缓存 | `-y` 保证无控制台交互，显式版本保证启动可复现，环境变更限制在 npm 用户缓存 |
+| DD-010 | Auto 只使用发布阶段精确锁定、随包交付并经 manifest/hash 校验的私有运行时 | 消除用户设备上的实时依赖解析、registry、PATH 和 npm cache 漂移 |
 | DD-011 | Owned DSH 固定随桌面宿主退出 | 与 Job Object 的 `KILL_ON_JOB_CLOSE` 语义一致，优先保证无残留进程 |
 | DD-012 | HTTP 可达与 DSH 身份确认分离 | 防止把占用端口的无关 Web 服务误判为外部 DSH |
 | DD-013 | `RunningExternal` 使用主动健康监测 | 消除仅靠导航失败才能发现外部服务失联的状态盲区 |
@@ -235,11 +235,11 @@ DeepSeekCLI/
 
 ### 7.2 运行时依赖
 
-- Node.js 和 npm/npx
-- 本机已安装或可由 npx 下载到当前用户缓存的 `@deepseek-ai/dsh`
-- Microsoft Edge WebView2 Evergreen Runtime
+- .NET 8 Desktop Runtime x64；framework-dependent 应用启动前必须存在。
+- Microsoft Edge WebView2 Evergreen Runtime。
+- Auto 模式需要 PATH 中可用的全局 `dsh.cmd`，或 Node.js LTS 提供的 `node.exe` 与 `npx.cmd`。
 
-应用不安装 Node.js、WebView2 Runtime 或全局 npm 包。默认启动使用 `npx -y`；本机无可用 DSH 缓存时，npx 可以访问配置的 npm registry 并写入当前用户缓存，UI 必须持续显示下载日志，失败时保留可诊断输出。
+发布包不携带 .NET、Node 或 DSH。缺少 WebView2/Node 时只打开官方安装页面；npx 下载固定版本 DSH 前必须由用户确认。
 
 ## 8. 领域模型
 
@@ -320,20 +320,17 @@ public sealed record HarnessProcessInfo(
 ```csharp
 public interface IDshCommandResolver
 {
-    Task<DshLaunchOptions> ResolveAsync(
-        AppSettings settings,
-        CancellationToken cancellationToken);
+    Task<DshLaunchOptions> ResolveAsync(AppSettings settings, CancellationToken cancellationToken);
 }
 ```
 
 解析顺序：
 
-1. 若 `Launch.Mode` 为 `Custom`，校验并使用用户配置的可执行文件和参数。
-2. 在 PATH 中查找 `dsh.cmd`，命令参数为 `web`。
-3. 在刷新后的 Machine/User/Process PATH 中查找 `npx.cmd`，命令参数为 `-y @deepseek-ai/dsh@0.1.0-rc.6 web`。
-4. 均未找到时返回 `DSH-E101`。
+1. `Custom` 校验并使用用户配置的原生 `.exe`/`.com`。
+2. Auto 优先查找 PATH 中的 `dsh.cmd`，生成固定 `web [--port <数字>]` 参数。
+3. 未找到全局 DSH 时查找 `npx.cmd`，生成固定 `-y @deepseek-ai/dsh@0.1.0-rc.6 web [--port <数字>]` 参数。
 
-不得扫描或硬编码 npm `_npx` 缓存哈希目录。
+Auto 不扫描 npm `_npx` 缓存，不接受用户包名或 Shell 参数；`.cmd` 只通过受控的 `CmdCommandLineBuilder` 执行。
 
 ### 9.2 进程管理
 
@@ -455,41 +452,15 @@ private long _generation;
 
 ## 11. 启动命令设计
 
-### 11.1 PATH 解析
+### 11.1 Auto 入口
 
-不通过 Shell 执行 `where` 文本命令。使用环境变量 `PATH` 和 `PATHEXT` 逐项查找：
+Auto 优先使用 PATH 中的 `dsh.cmd`；未找到时使用 PATH 中的 `npx.cmd`。包规格固定为 `@deepseek-ai/dsh@0.1.0-rc.6`，其余参数仅允许 `-y`、`web` 和可选数字端口。工作目录只写入 `WorkingDirectory`，不拼入命令行。
 
-- `dsh.cmd`
-- `npx.cmd`
+### 11.2 创建期进程归属
 
-只接受存在的普通文件。解析完成后保存绝对路径。
+Owned 原生进程使用 `CreateProcessW(CREATE_SUSPENDED)` 创建并建立匿名 stdout/stderr 管道。在任何用户代码执行前，将进程句柄加入带 `KILL_ON_JOB_CLOSE` 的 Job Object，完成跟踪和事件注册后再 `ResumeThread`。任一步失败都关闭线程、进程、管道和 Job 句柄；不得回退到存在 `Process.Start` 后分配 Job 窗口的实现。
 
-### 11.2 `.cmd` 执行
-
-Windows 的 npm 命令通常是 `.cmd` 包装器。为了重定向 stdout/stderr，实际进程为：
-
-```text
-Executable: %SystemRoot%\System32\cmd.exe
-Arguments:  /d /v:off /s /c ""<absolute-path-to-npx.cmd>" -y @deepseek-ai/dsh@0.1.0-rc.6 web"
-WorkingDirectory: <selected workspace>
-UseShellExecute: false
-CreateNoWindow: true
-RedirectStandardOutput: true
-RedirectStandardError: true
-RedirectStandardInput: false
-```
-
-安全约束：
-
-- npm 路径必须来自 PATH 解析后的绝对文件路径。
-- 默认参数由程序常量生成。
-- `-y` 只预先回答 npx 的安装确认；npx 仍可联网并写入当前用户 npm 缓存，不代表全局安装或升级。
-- 工作目录只设置到 `WorkingDirectory`，不进入命令字符串。
-- 默认 `.cmd` 模式只允许程序内置的 `web` 或 `-y @deepseek-ai/dsh@0.1.0-rc.6 web` 参数，不接受用户文本进入 `cmd.exe` 命令串。
-- `cmd.exe` 固定取 `Environment.SystemDirectory` 下的系统文件，不信任可被用户覆盖的 `%COMSPEC%`；脚本绝对路径不得包含 `%`、CR、LF 或 NUL，`/v:off` 禁止延迟环境变量展开。
-- 命令构造分两层测试：外层按 Windows `CommandLineToArgvW` 对称规则序列化 `cmd.exe` 参数；内层按 `cmd.exe /s /c` 规则生成唯一命令字符串，并用带空格、`&`、括号和 Unicode 的脚本路径做往返测试。
-- 自定义模式 MVP 只接受 `.exe` 或 `.com` 原生可执行文件，参数逐项加入 `ProcessStartInfo.ArgumentList`，不经 Shell；自定义 `.cmd`/`.bat` 暂不支持。
-- 自定义模式在 UI 中标记为高级设置。
+Custom 仍只接受 `.exe`/`.com` 并使用结构化参数；`.cmd`/`.bat` 和任意 Shell 文本不属于支持面。
 
 ### 11.3 环境变量
 
@@ -1073,7 +1044,7 @@ public sealed record HarnessError(
 
 | 错误码 | 用户提示 | 是否可重试 |
 |---|---|---:|
-| `DSH-E101` | 未找到 dsh 或 npx，请检查 Node.js 安装 | 否 |
+| `DSH-E101` | 未找到全局 DSH，且 Node.js 或 npx 不可用 | 否 |
 | `DSH-E102` | 工作目录不存在或不可访问 | 否 |
 | `DSH-E103` | 无法创建 DSH 进程 | 是 |
 | `DSH-E201` | DSH 进程意外退出 | 是 |
@@ -1086,6 +1057,7 @@ public sealed record HarnessError(
 | `DSH-E212` | npm 安全连接失败，请检查系统时间、代理和证书 | 是 |
 | `DSH-E213` | npm registry 拒绝或未找到 DSH 包 | 是 |
 | `DSH-E214` | npm 缓存或目录权限不足 | 是 |
+| `DSH-E215` | 旧 npx 停滞迁移诊断（预留） | 否 |
 | `WEB-E301` | WebView2 Runtime 不可用 | 否 |
 | `WEB-E302` | 页面加载失败 | 是 |
 | `WEB-E303` | WebView2 渲染进程异常 | 是 |
@@ -1204,8 +1176,9 @@ Local\DeepSeekHarnessDesktop-<CurrentUserSid>
 | 测试对象 | 测试点 |
 |---|---|
 | `HarnessStateMachine` | 所有合法转换、非法转换、快照 generation |
-| `DshCommandResolver` | dsh 优先、npx 回退、`-y` 固定参数、自定义原生 EXE、PATH 缺失 |
-| `CmdCommandLineBuilder` | 空格、`&`、括号、Unicode 路径，外层 argv/内层 cmd 双层转义，拒绝 `%`/换行/NUL |
+| `DshCommandResolver` | 全局 DSH 优先、固定版本 npx 参数、端口约束、自定义原生 EXE |
+| `DependencyDiagnosticsService` | WebView2、Node、npx、全局 DSH 发现和缺失组合 |
+| `NpmFailureClassifier` | DNS、TLS、registry、权限错误稳定映射 |
 | `UrlParser` | 先剥离 ANSI，再解析 IPv4、localhost、IPv6、非法端口和外部地址 |
 | `SettingsService` | 默认值、原子保存、备份恢复、版本迁移、损坏 JSON |
 | `HarnessHealthMonitor` | DSH 双特征身份确认、未知 HTTP 服务、超时、取消、loopback 内部重定向、外部重定向、CTS 释放 |
@@ -1280,17 +1253,17 @@ Local\DeepSeekHarnessDesktop-<CurrentUserSid>
 dotnet publish src/DeepSeekHarnessDesktop/DeepSeekHarnessDesktop.csproj `
   -c Release `
   -r win-x64 `
-  --self-contained true `
-  -p:PublishSingleFile=true `
-  -p:IncludeNativeLibrariesForSelfExtract=true `
+  --self-contained false `
+  -p:PublishSingleFile=false `
   -p:DebugType=None
 ```
 
 说明：
 
-- 应用主体按单文件 self-contained 发布。
+- 应用按 framework-dependent 轻量 ZIP 发布，目标机必须先安装 .NET 8 Desktop Runtime x64。
 - WebView2 Evergreen Runtime 不打入应用 EXE。
-- 安装程序检查 WebView2 Runtime，缺失时使用微软官方 Bootstrapper。
+- 应用启动后检查 WebView2 和 Node.js，缺失时打开官方安装页面。
+- 发布门禁限制 ZIP 不超过 30 MiB、主 EXE 不超过 5 MiB，并拒绝 Node/npm/DSH cache 与用户数据。
 - 首个内部版本可以先发布 ZIP，正式版本再制作安装包。
 
 ### 26.3 版本信息
@@ -1355,7 +1328,7 @@ dotnet publish src/DeepSeekHarnessDesktop/DeepSeekHarnessDesktop.csproj `
 
 1. 完成图标、版本信息和 app.manifest。
 2. 执行多 DPI 和窗口尺寸验证。
-3. 生成 self-contained 发布包。
+3. 生成 framework-dependent 轻量发布包。
 4. 在干净 Windows 环境验证 Node.js、WebView2 缺失提示。
 5. 输出安装说明和已知问题。
 
@@ -1394,6 +1367,8 @@ MVP 必须同时满足：
 3. 是否在首版包含安装包，还是先提供免安装 ZIP。
 
 未确认时采用本文默认值：Windows x64、允许高级自定义原生可执行文件、关闭时固定停止应用实例、首版先提供 ZIP。Desktop 0.2.0 已支持受控数字端口模板，但不接受任意用户 Shell 参数。
+
+以下第 30 至 32 节保留 0.2.0 至 0.6.1 的历史设计记录，其中 npx 路径已被第 33 节取代。
 
 ## 30. Desktop 0.2.0 安装、地址与更新增量
 
@@ -1442,3 +1417,21 @@ MVP 必须同时满足：
 - 自动 npx 命令固定为 `npx -y @deepseek-ai/dsh@0.1.0-rc.6 web`，不再让 npm 在启动路径中解析并替换为新的预发布版本。
 - 更新已验证版本必须同时更新单一元数据常量，并执行真实下载或缓存复用、HTTP 身份确认、Owned 停止和重启验证。
 - 该修正不扫描 npm `_npx` 缓存、不全局安装 DSH，也不改变“关于”窗口只读查询 npm `latest` 的边界。
+
+## 33. Desktop 0.9.0 轻量启动设计
+
+### 33.1 环境检查顺序
+
+窗口显示后诊断 WebView2、Node.js、npx、全局 DSH 和可复用的固定版本 npx 缓存。安装引导根据第一个缺失项决定唯一主操作：WebView2 缺失时打开微软官方页面；Node/npx 缺失时打开 Node.js 官方页面；环境满足后才允许准备并启动。用户完成外部安装后必须重新检查 PATH。
+
+### 33.2 DSH 准备
+
+全局 `dsh.cmd` 优先。没有全局 DSH 时，`NpxDshCacheLocator` 最多检查标准 `_npx` 根下 256 个直接子目录，只接受固定 `@deepseek-ai/dsh` 包名、`0.1.0-rc.6` 版本、`lib/bin.js` bin 映射和真实固定入口；命中后通过 PATH 中的 `node.exe` 直接启动，不调用 npx 或访问 registry。没有合格缓存时，应用才在用户确认后通过 `npx.cmd` 执行精确包规格。不全局安装、不接受用户包名或额外 npm 参数。npm stderr 只在当前 npx 启动窗口内分类，映射为 `DSH-E211` 至 `DSH-E214`；未知退出仍使用 `DSH-E201`。
+
+### 33.3 生命周期与安全
+
+所有 Owned 进程仍以挂起状态创建，加入带 `KILL_ON_JOB_CLOSE` 的 Job Object 后再恢复。立即退出与 HTTP 就绪任务竞争，已完成退出优先；Stop/Restart 继续经过生命周期门、取消令牌和 generation。External DSH 只连接，不停止或重启。
+
+### 33.4 发布
+
+发布使用 framework-dependent `win-x64` ZIP。目标机需预装 .NET 8 Desktop Runtime，包内不包含 .NET、Node、npm、npx、DSH cache 或用户数据。门禁限制 ZIP 不超过 30 MiB、主 EXE 不超过 5 MiB，并验证版本元数据、单元/集成测试、WebView2 smoke 和禁入条目。

@@ -15,7 +15,7 @@ public sealed class UserConfirmationService : IUserConfirmationService
 
     public bool ConfirmDshDownload() => MessageBox.Show(
         Application.Current?.MainWindow,
-        $"应用将通过 npx 准备并启动已验证的 DSH {DshPackageMetadata.ValidatedVersion}。此操作可能访问 npm registry 并写入当前用户缓存，最长等待 5 分钟。是否继续？",
+        $"应用将通过 npx 下载并启动固定版本 DSH {DshPackageMetadata.ValidatedVersion}。此操作会访问 npm registry 并写入当前用户 npm 缓存。是否继续？",
         "准备并启动 DSH",
         MessageBoxButton.YesNo,
         MessageBoxImage.Question) == MessageBoxResult.Yes;

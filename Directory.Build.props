@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <AppVersion>0.6.1</AppVersion>
+    <AppVersion>0.9.2</AppVersion>
     <Version>$(AppVersion)</Version>
     <AssemblyVersion>$(AppVersion).0</AssemblyVersion>
     <FileVersion>$(AppVersion).0</FileVersion>

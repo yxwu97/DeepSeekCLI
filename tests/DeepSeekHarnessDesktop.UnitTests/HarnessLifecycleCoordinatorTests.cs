@@ -87,9 +87,9 @@ public sealed class HarnessLifecycleCoordinatorTests
     }
 
     [Fact]
-    public async Task NpxStartReportsAutomaticPreparationWhileWaiting()
+    public async Task OwnedStartReportsServiceReadinessWait()
     {
-        var fixture = await CreateFixtureAsync(useNpx: true);
+        var fixture = await CreateFixtureAsync();
         fixture.Health.EnqueueProbe(HealthProbeStatus.Unreachable);
         fixture.Health.BlockReadyUntilCancelled = true;
 
@@ -97,9 +97,7 @@ public sealed class HarnessLifecycleCoordinatorTests
         await fixture.Health.ReadyStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.Equal(HarnessRuntimeState.Starting, fixture.Coordinator.Current.State);
-        Assert.Equal(
-            "正在通过 npx 自动准备并启动 DSH，无需手动操作，最长等待 5 秒",
-            fixture.Coordinator.Current.StatusMessage);
+        Assert.Equal("DSH 进程已创建，正在等待服务就绪，最长等待 5 秒", fixture.Coordinator.Current.StatusMessage);
 
         await fixture.Coordinator.StopAsync(CancellationToken.None);
         await starting;
@@ -110,13 +108,13 @@ public sealed class HarnessLifecycleCoordinatorTests
     public async Task StopDuringAutomaticInitializationDoesNotEscapeCancellation()
     {
         var logs = new RecentLogBuffer();
-        var process = new FakeProcessManager(logs);
+        var process = new FakeProcessManager();
         var health = new FakeHealthMonitor { BlockReadyUntilCancelled = true };
         health.EnqueueProbe(HealthProbeStatus.Unreachable);
         var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = true };
         var coordinator = new HarnessLifecycleCoordinator(
             new HarnessStateMachine(),
-            new FakeResolver(settings, useNpx: true),
+            new FakeResolver(settings),
             process,
             health,
             settings,
@@ -129,6 +127,28 @@ public sealed class HarnessLifecycleCoordinatorTests
 
         Assert.Equal(HarnessRuntimeState.Stopped, coordinator.Current.State);
         Assert.Equal(1, process.StopCount);
+        await coordinator.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AutomaticInitializationWaitsForUserWhenNpxDownloadIsRequired()
+    {
+        var process = new FakeProcessManager();
+        var health = new FakeHealthMonitor();
+        health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = true };
+        var coordinator = new HarnessLifecycleCoordinator(
+            new HarnessStateMachine(),
+            new FakeResolver(settings, "npx.cmd"),
+            process,
+            health,
+            settings);
+
+        await coordinator.InitializeAsync(CancellationToken.None);
+
+        Assert.Equal(HarnessRuntimeState.Stopped, coordinator.Current.State);
+        Assert.Contains("确认", coordinator.Current.StatusMessage, StringComparison.Ordinal);
+        Assert.Equal(0, process.StartCount);
         await coordinator.DisposeAsync();
     }
 
@@ -229,22 +249,6 @@ public sealed class HarnessLifecycleCoordinatorTests
         Assert.Equal(HarnessRuntimeState.Failed, fixture.Coordinator.Current.State);
         Assert.Equal("DSH-E201", fixture.Coordinator.Current.Error?.Code);
         Assert.Contains("code 23", fixture.Coordinator.Current.Error?.TechnicalMessage, StringComparison.Ordinal);
-        await fixture.DisposeAsync();
-    }
-
-    [Fact]
-    public async Task NpxDnsFailureUsesActionableErrorCode()
-    {
-        var fixture = await CreateFixtureAsync(useNpx: true);
-        fixture.Health.EnqueueProbe(HealthProbeStatus.Unreachable);
-        fixture.Health.BlockReadyUntilCancelled = true;
-        fixture.Process.ErrorDuringStartLine = "npm ERR! code ENOTFOUND";
-        fixture.Process.ExitDuringStartCode = 1;
-
-        await fixture.Coordinator.StartAsync(CancellationToken.None);
-
-        Assert.Equal(HarnessRuntimeState.Failed, fixture.Coordinator.Current.State);
-        Assert.Equal("DSH-E211", fixture.Coordinator.Current.Error?.Code);
         await fixture.DisposeAsync();
     }
 
@@ -371,15 +375,15 @@ public sealed class HarnessLifecycleCoordinatorTests
         await coordinator.DisposeAsync();
     }
 
-    private static async Task<Fixture> CreateFixtureAsync(bool useNpx = false)
+    private static async Task<Fixture> CreateFixtureAsync()
     {
         var logs = new RecentLogBuffer();
-        var process = new FakeProcessManager(logs);
+        var process = new FakeProcessManager();
         var health = new FakeHealthMonitor();
         var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = false };
         var coordinator = new HarnessLifecycleCoordinator(
             new HarnessStateMachine(),
-            new FakeResolver(settings, useNpx),
+            new FakeResolver(settings),
             process,
             health,
             settings,
@@ -411,14 +415,14 @@ public sealed class HarnessLifecycleCoordinatorTests
         public ValueTask DisposeAsync() => Coordinator.DisposeAsync();
     }
 
-    private sealed class FakeResolver(AppSettings settings, bool useNpx = false) : IDshCommandResolver
+    private sealed class FakeResolver(AppSettings settings, string executableName = "cmd.exe") : IDshCommandResolver
     {
-        public Task<DshLaunchOptions> ResolveAsync(AppSettings _, CancellationToken cancellationToken) =>
+        public Task<DshLaunchOptions> ResolveAsync(
+            AppSettings _,
+            CancellationToken cancellationToken) =>
             Task.FromResult(new DshLaunchOptions
             {
-                ExecutablePath = useNpx
-                    ? Path.Combine(Path.GetTempPath(), "npx.cmd")
-                    : Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+                ExecutablePath = Path.Combine(Environment.SystemDirectory, executableName),
                 Arguments = [],
                 WorkingDirectory = settings.WorkspacePath,
                 FallbackUri = settings.ServiceUri,
@@ -426,7 +430,7 @@ public sealed class HarnessLifecycleCoordinatorTests
             });
     }
 
-    private sealed class FakeProcessManager(IRecentLogBuffer? logs = null) : IHarnessProcessManager
+    private sealed class FakeProcessManager : IHarnessProcessManager
     {
         private int _nextProcessId = 100;
         public event EventHandler<ProcessOutputEventArgs>? OutputReceived;
@@ -436,7 +440,6 @@ public sealed class HarnessLifecycleCoordinatorTests
         public int StartCount { get; private set; }
         public int StopCount { get; private set; }
         public int? ExitDuringStartCode { get; set; }
-        public string? ErrorDuringStartLine { get; set; }
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<HarnessProcessInfo> StartAsync(DshLaunchOptions options, CancellationToken cancellationToken)
@@ -447,17 +450,9 @@ public sealed class HarnessLifecycleCoordinatorTests
             Started.TrySetResult();
             OutputReceived?.Invoke(this, new ProcessOutputEventArgs(new ProcessOutputLine(
                 DateTimeOffset.UtcNow, ProcessOutputSource.StandardOutput, "ready http://127.0.0.1:43123/")));
-            if (ErrorDuringStartLine is { } errorText)
-            {
-                var errorLine = new ProcessOutputLine(
-                    DateTimeOffset.UtcNow,
-                    ProcessOutputSource.StandardError,
-                    errorText);
-                logs?.Add(errorLine);
-                OutputReceived?.Invoke(this, new ProcessOutputEventArgs(errorLine));
-            }
             if (ExitDuringStartCode is { } exitCode)
             {
+                ExitDuringStartCode = null;
                 Current = null;
                 ProcessExited?.Invoke(this, new ProcessExitedEventArgs(process.ProcessId, exitCode));
             }
@@ -578,4 +573,5 @@ public sealed class HarnessLifecycleCoordinatorTests
             return Task.CompletedTask;
         }
     }
+
 }

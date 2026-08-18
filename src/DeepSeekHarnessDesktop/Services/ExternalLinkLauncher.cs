@@ -8,6 +8,7 @@ public sealed class ExternalLinkLauncher : IExternalLinkLauncher
     private static readonly IReadOnlyDictionary<OfficialResource, Uri> Resources =
         new Dictionary<OfficialResource, Uri>
         {
+            [OfficialResource.WebView2Download] = new("https://developer.microsoft.com/en-us/microsoft-edge/webview2/"),
             [OfficialResource.NodeDownload] = new("https://nodejs.org/en/download"),
             [OfficialResource.DshDocumentation] = new("https://github.com/deepseek-ai/DeepSeek-Harness"),
             [OfficialResource.NpmPackage] = new("https://www.npmjs.com/package/@deepseek-ai/dsh"),

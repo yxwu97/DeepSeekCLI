@@ -1,40 +1,43 @@
 # DeepSeek Harness Desktop
 
-DeepSeek Harness Desktop 是面向 Windows 的 .NET 桌面宿主，为 DeepSeek Harness 提供一个开箱即用的图形化外壳。它集中处理工作目录选择、`dsh web` 进程启动与停止、服务状态探测和页面承载，让使用体验更接近 Codex CLI 与 Claude Code 等开发工具，减少手工启动和管理本地服务的操作。
+DeepSeek Harness Desktop 是面向 Windows 10/11 x64 的轻量 WPF 宿主。它负责选择工作目录、启动和管理 `dsh web`、验证本机服务身份，并通过 WebView2 展示官方 DeepSeek Harness Web UI。
 
-本项目不重新实现 DeepSeek Harness 或 DeepSeek Chat 的会话、模型、工具、审批、工作区、登录和消息功能。这些能力继续由官方网页提供，桌面宿主只负责 Windows 集成、本地生命周期管理和隔离的网页承载。
+本项目不重新实现 Harness 或 DeepSeek Chat 的会话、模型、工具、审批、登录和消息功能。
 
 ## 技术实现
 
 - C# / .NET 8
-- WPF 桌面界面
+- WPF + CommunityToolkit.Mvvm
 - Microsoft Edge WebView2
-- CommunityToolkit.Mvvm
 - Microsoft.Extensions.DependencyInjection
 - Serilog
 
-应用面向 Windows 10/11 x64，发布为 self-contained、single-file ZIP，不采用 Electron。
+发布包采用 framework-dependent 模式，不携带 .NET、Node.js 或 DSH。目标机需安装 .NET 8 Desktop Runtime；应用启动后会依次检查 WebView2、Node.js、npx 和 DSH，并按当前缺失项引导安装。
 
 ## 主要能力
 
-- 选择并记住 DeepSeek Harness 工作目录。
-- 启动、停止和重启当前应用创建的 `dsh web` 进程。
-- 识别并连接已有的外部 DeepSeek Harness 服务，但不会停止外部进程。
-- 探测服务健康状态和 DeepSeek Harness 身份。
-- 在 WebView2 中承载官方 Web UI，并限制主导航到已确认的本机服务。
-- 默认进入 Code，并可懒加载官方 DeepSeek Chat；两个页面在进程内保持实例，Chat 使用独立持久 profile。
-- Chat 仅内嵌精确官方 HTTPS origin，权限与下载默认拒绝，并支持二次确认后单独清除 Chat 登录信息。
-- 提供运行状态、诊断信息、本地日志、托盘、账户余额查询和 DeepSeek 官方充值入口。
-- 提供详细日志、阶段/总耗时、5 分钟期限和手动操作入口的 Node.js/npx 安装引导。
-- 支持测试并切换本机 DSH 服务地址，包括 Owned 实例的受控非默认端口重启。
-- 自动 npx 路径使用已验证的 `@deepseek-ai/dsh@0.1.0-rc.6`；“关于”窗口仍可只读查询 npm `latest`，但不会让未验证版本改变启动行为。
-- “关于”窗口提供本系统 GitHub 项目入口，方便查看 Releases 和下载发布版本。
-- “关于”窗口内置系统版本记录，可离线查看各版本日期和主要变更。
+- 优先启动 PATH 中已安装的 `dsh.cmd`，其次直接复用当前用户 npx 缓存中已准备好的固定版本 DSH。
+- 只有没有可复用 DSH 时，才经用户确认通过 npx 下载并启动 `@deepseek-ai/dsh@0.1.0-rc.6`。
+- 一个主操作按 WebView2、Node.js、npx、DSH 的顺序处理环境缺失。
+- 只停止或重启本程序创建的 Owned DSH 进程树；外部 DSH 仅连接。
+- 使用 Job Object、串行生命周期和 generation 校验处理退出、取消和重启竞态。
+- 只接受 loopback DSH 服务并验证 HTTP 身份，Code WebView2 保持同源。
+- Chat 使用独立 profile，只允许精确官方 HTTPS origin，权限默认拒绝、下载默认取消。
+- 配置原子写入，外部日志规范化、限长并脱敏。
+- framework-dependent 发布门禁限制 ZIP 不超过 30 MiB、主 EXE 不超过 5 MiB。
 
 ## 使用与开发
 
 - [安装与使用说明](docs/installation.md)
 - [开发文档](docs/deepseek-harness-desktop-development.md)
 - [详细设计](docs/deepseek-harness-desktop-detailed-design.md)
+
+本地开发：
+
+```powershell
+dotnet restore DeepSeekHarnessDesktop.sln
+dotnet build DeepSeekHarnessDesktop.sln -c Debug --no-restore -m:1
+dotnet run --project src/DeepSeekHarnessDesktop/DeepSeekHarnessDesktop.csproj --no-build
+```
 
 本项目是 DeepSeek Harness 的独立桌面宿主，不代表 DeepSeek 官方产品。

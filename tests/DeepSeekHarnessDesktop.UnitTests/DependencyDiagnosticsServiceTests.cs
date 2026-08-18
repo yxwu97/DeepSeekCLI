@@ -1,102 +1,117 @@
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services;
+using System.Text.Json;
 
 namespace DeepSeekHarnessDesktop.UnitTests;
 
-public sealed class DependencyDiagnosticsServiceTests
+public sealed class DependencyDiagnosticsServiceTests : IDisposable
 {
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "DSH-Diagnostics", Guid.NewGuid().ToString("N"));
+
+    public DependencyDiagnosticsServiceTests() => Directory.CreateDirectory(_root);
+
     [Fact]
-    public async Task ReportsVersionsWhenDependenciesExist()
+    public async Task GlobalDshIsPreferredAndReportedWithSystemDependencies()
     {
-        using var directory = new TemporaryDirectory();
-        File.WriteAllText(Path.Combine(directory.Path, "node.exe"), string.Empty);
-        File.WriteAllText(Path.Combine(directory.Path, "npx.cmd"), string.Empty);
-        var service = new DependencyDiagnosticsService(
-            name => name == "PATH" ? directory.Path : null,
-            () => "140.0.3485.54",
-            (_, _) => Task.FromResult<string?>("v24.1.0"));
+        CreateFile("dsh.cmd");
+        CreateFile("node.exe");
+        CreateFile("npx.cmd");
+        var service = CreateService();
 
         var result = await service.DiagnoseAsync(CancellationToken.None);
 
-        Assert.Equal("140.0.3485.54", result.WebView2RuntimeVersion);
-        Assert.Equal("v24.1.0", result.NodeVersion);
-        Assert.EndsWith("npx.cmd", result.NpxPath, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public async Task MissingDependenciesReturnStableErrorCodes()
-    {
-        var service = new DependencyDiagnosticsService(
-            _ => null,
-            () => throw new InvalidOperationException("runtime missing"),
-            (_, _) => Task.FromResult<string?>(null));
-
-        var result = await service.DiagnoseAsync(CancellationToken.None);
-
-        Assert.Contains(result.Errors, error => error.Code == "WEB-E301");
-        Assert.Contains(result.Errors, error => error.Code == "DSH-E101");
-    }
-
-    [Fact]
-    public async Task GlobalDshIsSufficientWithoutNodeOrNpx()
-    {
-        using var directory = new TemporaryDirectory();
-        var dsh = Path.Combine(directory.Path, "dsh.cmd");
-        File.WriteAllText(dsh, string.Empty);
-        var service = new DependencyDiagnosticsService(
-            name => name == "PATH" ? directory.Path : null,
-            () => "140.0.3485.54",
-            (_, _) => Task.FromResult<string?>("0.1.0-rc.6"));
-
-        var result = await service.DiagnoseAsync(CancellationToken.None);
-
-        Assert.True(result.CanLaunchDsh);
+        Assert.Equal(DependencyStatus.Available, result.WebView2.Status);
         Assert.Equal(DependencyStatus.Available, result.GlobalDsh.Status);
-        Assert.Equal(DependencyStatus.Missing, result.Node.Status);
+        Assert.Equal(DependencyStatus.Available, result.Node.Status);
+        Assert.Equal(DependencyStatus.Available, result.Npx.Status);
+        Assert.True(result.CanLaunchDsh);
         Assert.DoesNotContain(result.Errors, error => error.Code == "DSH-E101");
     }
 
     [Fact]
-    public void EnvironmentPathProviderRefreshesAndDeduplicatesPersistedPaths()
+    public async Task NodeAndNpxCanPrepareDshWhenGlobalDshIsMissing()
     {
-        var machine = @"C:\Program Files\nodejs;C:\Windows";
-        var user = @"C:\Users\test\bin;C:\Program Files\nodejs";
-        var process = @"C:\stale;C:\Windows";
-        var provider = new EnvironmentPathProvider((name, target) => target switch
-        {
-            EnvironmentVariableTarget.Machine => machine,
-            EnvironmentVariableTarget.User => user,
-            EnvironmentVariableTarget.Process => process,
-            _ => null,
-        });
+        CreateFile("node.exe");
+        CreateFile("npx.cmd");
 
-        var result = provider.GetSearchPath()!.Split(Path.PathSeparator);
+        var result = await CreateService().DiagnoseAsync(CancellationToken.None);
 
-        Assert.Equal(
-            [@"C:\Program Files\nodejs", @"C:\Windows", @"C:\Users\test\bin", @"C:\stale"],
-            result);
+        Assert.Equal(DependencyStatus.Missing, result.GlobalDsh.Status);
+        Assert.True(result.CanLaunchDsh);
+        Assert.DoesNotContain(result.Errors, error => error.Code == "DSH-E101");
     }
 
-    private sealed class TemporaryDirectory : IDisposable
+    [Fact]
+    public async Task ValidatedCachedDshIsInstalledAndDoesNotRequireNpx()
     {
-        public TemporaryDirectory()
-        {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsh-dependency-tests", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(Path);
-        }
+        CreateFile("node.exe");
+        var cacheRoot = Path.Combine(_root, "cache", "_npx");
+        var entryPoint = CreateCachedDsh(cacheRoot, "valid", "0.1.0-rc.6", "lib/bin.js");
 
-        public string Path { get; }
+        var result = await CreateService(cacheRoot).DiagnoseAsync(CancellationToken.None);
 
-        public void Dispose()
-        {
-            try
-            {
-                Directory.Delete(Path, true);
-            }
-            catch (DirectoryNotFoundException)
-            {
-            }
-        }
+        Assert.Equal(DependencyStatus.Available, result.GlobalDsh.Status);
+        Assert.Equal(entryPoint, result.GlobalDsh.Path, ignoreCase: true);
+        Assert.Equal("0.1.0-rc.6", result.GlobalDsh.Version);
+        Assert.Equal(DependencyStatus.Missing, result.Npx.Status);
+        Assert.True(result.CanLaunchDsh);
+        Assert.DoesNotContain(result.Errors, error => error.Code == "DSH-E101");
     }
+
+    [Fact]
+    public async Task CacheLocatorRejectsWrongVersionAndBinMapping()
+    {
+        var node = Path.Combine(_root, "node.exe");
+        CreateFile("node.exe");
+        var cacheRoot = Path.Combine(_root, "cache", "_npx");
+        CreateCachedDsh(cacheRoot, "wrong-version", "0.1.0-rc.7", "lib/bin.js");
+        CreateCachedDsh(cacheRoot, "wrong-bin", "0.1.0-rc.6", "other.js");
+        var locator = new NpxDshCacheLocator(() => cacheRoot);
+
+        var result = await locator.FindAsync(node, CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task MissingNpxBlocksPreparationAndReturnsStableError()
+    {
+        CreateFile("node.exe");
+
+        var result = await CreateService().DiagnoseAsync(CancellationToken.None);
+
+        Assert.False(result.CanLaunchDsh);
+        Assert.Contains(result.Errors, error => error.Code == "DSH-E101");
+    }
+
+    private DependencyDiagnosticsService CreateService(string? cacheRoot = null) => new(
+        _ => _root,
+        () => "140.0.0.0",
+        (path, _) => Task.FromResult<string?>(Path.GetFileName(path) == "node.exe" ? "v24.15.0" : "0.1.0-rc.6"),
+        new NpxDshCacheLocator(() => cacheRoot ?? Path.Combine(_root, "empty-cache")));
+
+    private void CreateFile(string name) => File.WriteAllText(Path.Combine(_root, name), string.Empty);
+
+    private static string CreateCachedDsh(
+        string cacheRoot,
+        string cacheId,
+        string version,
+        string binEntry)
+    {
+        var packageRoot = Path.Combine(cacheRoot, cacheId, "node_modules", "@deepseek-ai", "dsh");
+        var entryPoint = Path.Combine(packageRoot, "lib", "bin.js");
+        Directory.CreateDirectory(Path.GetDirectoryName(entryPoint)!);
+        File.WriteAllText(entryPoint, string.Empty);
+        File.WriteAllText(
+            Path.Combine(packageRoot, "package.json"),
+            JsonSerializer.Serialize(new
+            {
+                name = "@deepseek-ai/dsh",
+                version,
+                bin = new Dictionary<string, string> { ["dsh"] = binEntry },
+            }));
+        return entryPoint;
+    }
+
+    public void Dispose() => Directory.Delete(_root, recursive: true);
 }

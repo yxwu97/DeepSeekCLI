@@ -3,63 +3,46 @@
 ## 系统要求
 
 - Windows 10 或 Windows 11 x64。
+- [.NET 8 Desktop Runtime x64](https://dotnet.microsoft.com/download/dotnet/8.0)。
 - Microsoft Edge WebView2 Evergreen Runtime。
-- 以下启动路径至少满足一条：全局 `dsh.cmd` 可用；或 Node.js 与 `npx.cmd` 已加入当前用户或系统 PATH。
-- 首次通过 npx 启动 DSH 时，需要能够访问 npm registry；应用只写入当前用户 npm 缓存，不会全局安装 DSH。
+- Node.js LTS x64（包含 npm 和 npx）；如果已全局安装可用的 `dsh`，Node.js 可不单独安装。
+- 首次通过 npx 准备 DSH 时需要访问 npm registry。
 
-## 使用
+发布包是 framework-dependent 轻量 ZIP，不包含 .NET、Node.js 或 DSH。应用本身必须依赖 .NET 8 Desktop Runtime 才能启动，因此 .NET 是唯一无法在应用内部补装的前置条件。
 
-1. 解压 ZIP 到可写目录。
-2. 双击 `DeepSeekHarnessDesktop.exe`。
-3. 在停止状态下选择工作目录；应用会保存该目录及窗口状态。
-4. 启动成功后，官方 DSH Web UI 会显示在主窗口中。
+## 安装与启动
 
-主窗口默认进入 Code。点击顶部 `Chat` 可在同一进程中懒加载 `https://chat.deepseek.com/`；再次切换不会重建页面，因此会保留当前页面、滚动位置和未提交输入。隐藏到托盘或由第二实例激活时保持当前模式，完整退出后下次启动仍默认 Code。
+1. 安装 .NET 8 Desktop Runtime x64。
+2. 解压发布 ZIP，双击 `DeepSeekHarnessDesktop.exe`。
+3. 应用依次检查 WebView2、Node.js、npx、全局 DSH 和已有的固定版本 npx DSH。
+4. 缺少 WebView2 或 Node.js 时，主按钮只打开当前缺失项的官方安装页；安装完成后返回应用并点击“重新检查”。
+5. 环境满足后选择工作目录，点击“准备并启动”。
+6. 如果没有全局 DSH，应用先复用当前用户 npx 缓存中已准备好的固定版本；只有缓存也不存在时，才询问是否通过 npx 下载并启动 `@deepseek-ai/dsh@0.1.0-rc.6`。
 
-页面“刷新”只刷新 Web UI，不会重启 DSH。“重启”只适用于当前桌面宿主创建的 DSH；已存在的外部 DSH 只连接，不停止、不重启。
+应用不会静默安装系统软件，也不会自动全局安装 Node.js 或 DSH。缓存复用只接受标准 `_npx` 目录中包名、版本、bin 映射和入口均匹配的 `@deepseek-ai/dsh@0.1.0-rc.6`，不会执行其他缓存包或 manifest 指定的任意入口。
 
-Chat 只内嵌精确的官方 HTTPS origin。其他安全 HTTP(S) 链接在系统浏览器打开，危险协议被拒绝。系统浏览器与应用专用 Chat profile 不共享登录信息，因此外部浏览器登录不会自动回写应用内 Chat。
+## 启动行为
 
-## DeepSeek 账号
+Auto 模式按以下顺序解析命令：
 
-“DeepSeek 账号”窗口可使用当前 Harness API Key 查询官方账户余额。“官方充值”按钮固定在系统默认浏览器打开 `https://platform.deepseek.com/top_up`；应用不会把 API Key、余额或其他账户数据附加到充值链接。充值页面的登录状态由系统浏览器独立管理。
+1. PATH 中可执行的 `dsh.cmd`，执行 `dsh web`。
+2. 当前用户标准 npx 缓存中校验通过的固定版本 DSH，通过 PATH 中的 `node.exe` 直接执行固定 `lib/bin.js web`，不访问 npm registry。
+3. PATH 中可执行的 `npx.cmd`，执行 `npx -y @deepseek-ai/dsh@0.1.0-rc.6 web`。
+4. 非默认端口只追加受控的 `--port <纯数字端口>`。
 
-## 安装引导
+工作目录始终通过 `ProcessStartInfo.WorkingDirectory` 传递，不拼接到 Shell 命令。自定义启动模式只接受已存在的原生 `.exe` 或 `.com`，不接受 `.cmd`、`.bat` 或任意 Shell 文本。
 
-未找到可用的全局 DSH，且 Node.js 或 npx 不可用时，主窗口会显示安装引导。也可在停止页或失败页手动打开引导。
+主窗口会先显示，再执行环境诊断、WebView2 初始化和 DSH 生命周期初始化。页面“刷新”只刷新 Web UI，不重启 DSH。“重启”只适用于当前 Desktop 创建的进程；已有外部 DSH 只连接和刷新，应用不会停止或重启它。
 
-- “Node.js 下载”只打开 Node.js 官方网站，不会下载或运行安装程序。
-- “重新检查”会重新读取系统、用户和进程 PATH，再探测 WebView2、全局 DSH、Node.js 和 npx。
-- “准备并启动”会先要求确认，然后复用应用现有的 Owned DSH 启动链路运行 `npx -y @deepseek-ai/dsh@0.1.0-rc.6 web`。该版本已经过 Desktop 的真实启动和生命周期验证。
-- npx 进程创建后，主窗口会继续显示“正在通过 npx 自动准备并启动 DSH”；下载、缓存更新和服务就绪检查均由应用自动完成，无需执行全局安装命令。
-- 准备和启动期间可以取消；应用会通过 Windows Job Object 回收本次创建的整个进程树。
-- 引导会显示当前阶段、阶段耗时、总耗时和最长等待时间；新配置默认最长等待 5 分钟。
-- 日志实时显示 `[时间] [desktop/stdout/stderr] 内容`，最多保留 1000 行，并支持复制已经规范化和脱敏的日志。
+## 本机服务与网页安全
 
-自动准备失败时，可展开“手动安装与启动”并按以下步骤操作：
+默认服务地址为 `http://127.0.0.1:3080/`，只接受绝对 loopback HTTP(S) 地址。端口可访问并不等于 DSH 可用；应用还会检查 HTTP 状态、页面标题和 DSH 身份标记。
 
-1. 点击“Node.js 下载”，安装 Node.js LTS x64；安装后重新打开 PowerShell。
-2. 执行 `node --version` 和 `npx --version`，确认两个命令均可用；返回应用点击“重新检查”，仍无法识别时重启应用。
-3. 在应用所选工作目录打开 PowerShell，执行 `npx @deepseek-ai/dsh@0.1.0-rc.6 web` 并保持终端运行。
-4. 等待终端显示本机服务地址，再返回应用连接默认地址 `http://127.0.0.1:3080/`。
+Code WebView2 只导航到已确认 DSH 地址的同源页面。Chat 只允许精确的 `https://chat.deepseek.com:443`，并使用独立 profile；权限默认拒绝、下载默认取消。其他安全 HTTP(S) 链接交给系统浏览器。
 
-手动启动的进程属于外部实例。应用只连接和刷新，不会停止或重启它。引导提供复制命令、在工作目录打开 PowerShell、DSH 官方文档和 npm 包页面的快捷入口；打开 PowerShell 不会自动执行命令。
+## 版本信息
 
-## 本机服务地址
-
-点击主工具栏的设置按钮可编辑服务地址、测试连接、恢复默认值并应用。默认地址为 `http://127.0.0.1:3080/`。
-
-- 只接受绝对的 loopback `http/https` 地址，例如 `http://localhost:43123/` 或 `https://[::1]:8443/`。
-- 不接受远程主机、用户信息、查询参数或片段；保存时路径统一为 `/`。
-- “测试连接”不会保存设置，且只有同时匹配 DSH 页面标题与启动标记才会报告成功。
-- 切换外部 DSH 时，应用先确认新地址身份；失败后保留原地址、原页面和原健康 watcher。
-- 修改应用创建的 Owned DSH 地址需要确认并重启。旧进程退出且旧端点释放前不会创建新进程。
-
-## 手动检查更新
-
-“关于”窗口可手动查询 npm 官方 registry 的 `latest` 版本。应用启动时不会后台检查，检查结果不会下载、安装、持久化或改变启动参数。自动 npx 路径固定使用已验证的 `0.1.0-rc.6`；全局 `dsh.cmd` 仍优先使用。
-
-“关于”窗口还提供“项目 GitHub”入口，固定打开本系统项目 `https://github.com/yxwu97/DeepSeekCLI`。需要下载桌面程序时，可在项目页面进入 Releases，选择最新发布版本的 Windows x64 ZIP。“版本记录”页签内置于应用，可离线查看各版本日期和主要变更。
+“关于”窗口显示 Desktop、.NET、WebView2、系统 Node.js、npx 和实际选用的 DSH 信息。npm `latest` 查询只用于查看上游发布状态，不会改变 Auto 使用的固定 DSH 版本。
 
 ## 本地数据
 
@@ -67,32 +50,27 @@ Chat 只内嵌精确的官方 HTTPS origin。其他安全 HTTP(S) 链接在系�
 - 配置备份：`%APPDATA%\DeepSeekHarnessDesktop\settings.json.bak`
 - 日志：`%LOCALAPPDATA%\DeepSeekHarnessDesktop\logs`
 - WebView2 数据：`%LOCALAPPDATA%\DeepSeekHarnessDesktop\WebView2`
+- npm/npx 缓存：由当前用户的 npm 配置决定，不由 Desktop 管理
 
-Code 沿用默认 WebView2 profile；Chat 使用同一数据根目录下固定且隔离的 `Chat` profile。有效的官方登录会话可由 WebView2 保存，但实际期限由官方网站决定。应用请求启用 WebView2 原生密码保存与自动填充，提示是否出现取决于 WebView2 Runtime、Windows 和企业策略；应用不读取、导出或记录密码、Cookie、Token、聊天正文或站点存储。
+API Key、Authorization、Cookie、Token 和密码不会写入配置、日志或发布包。进入 UI 的外部输出会先规范化、限长并脱敏。
 
-Chat 工具栏的清除按钮会先要求确认，然后仅对 Chat profile 调用 WebView2 的完整浏览数据清除，并重新加载 Chat。该操作不会清除 Code 页面数据、修改 DSH 设置或停止 DSH。Chat 权限请求和下载默认拒绝；需要下载时请使用官方页面提供的外部浏览器流程。
+## 常见错误
 
-日志按日和 10 MB 文件大小滚动，默认保留 7 个文件。Bearer 凭据、敏感环境变量值及 URL 中的 key/token/secret 参数会在写入前脱敏。
+- 应用无法启动并提示缺少 .NET：安装 .NET 8 Desktop Runtime x64 后重试。
+- `WEB-E301`：WebView2 Runtime 不可用；使用安装引导打开官方页面，安装后重试。
+- `DSH-E101`：未找到全局或缓存 DSH，且 Node.js 或 npx 不可用；安装 Node.js LTS x64 后重新检查。
+- `DSH-E201`：DSH 进程意外退出；查看界面中的脱敏日志。
+- `DSH-E203`：DSH 未在配置的期限内通过身份检查。
+- `DSH-E205`：目标端口有 HTTP 服务，但不是已确认的 DSH。
+- `DSH-E211`：npm DNS 或网络连接失败。
+- `DSH-E212`：npm TLS/证书校验失败。
+- `DSH-E213`：npm registry 拒绝请求或找不到固定 DSH 包。
+- `DSH-E214`：npm 缓存或目录权限不足。
 
-## 故障诊断
+## 卸载
 
-- `DSH-E101`：全局 DSH 不可用，并且 Node.js 或 npx 缺失/无法运行；使用安装引导重新检查。
-- `DSH-E202`：服务地址不符合本机 origin 规则；在服务设置中修正地址。
-- `DSH-E205`：目标地址被无法确认身份的其他服务占用；应用不会加载或结束该服务。
-- `DSH-E207`：当前正在启动、停止或重启；等待操作完成后再应用地址。
-- `DSH-E208`：设置中的 DSH 地址不可达；启动服务或改用其他本机地址。
-- `DSH-E211`：npm DNS 查询失败；检查网络、DNS 和代理设置。
-- `DSH-E212`：npm TLS 或证书验证失败；检查系统时间、代理和企业证书策略。
-- `DSH-E213`：npm registry 拒绝请求或未找到包；检查 npm registry 配置和访问策略。
-- `DSH-E214`：npm 缓存或工作目录权限不足；检查当前用户对相关目录的权限。
-- `WEB-E301`：安装或修复 Microsoft Edge WebView2 Evergreen Runtime。
-- `WEB-E311`：Chat WebView2/profile 初始化失败；可重试，持续失败时修复 Runtime。
-- `WEB-E312`：Chat 网络或 DNS 失败；检查网络后重试。
-- `WEB-E313`：Chat TLS/证书校验失败；检查系统时间、代理和企业证书策略。
-- `WEB-E314`：Chat 官方服务返回 HTTP 错误；稍后重试。
-- `WEB-E315`：Chat 页面进程异常；应用会进行一次单页恢复。
-- `WEB-E316`：Chat 登录信息清除失败；Code 和 DSH 不受影响，可重试。
-- `WEB-E318`：系统浏览器无法打开外部链接。
-- `CFG-E401`：主配置与备份均不可用，应用已使用默认设置启动。
+1. 从托盘完整退出应用，确保 Owned DSH 进程树已结束。
+2. 删除解压后的程序目录。
+3. 如需清除设置、日志和网页数据，再删除 `%APPDATA%\DeepSeekHarnessDesktop` 与 `%LOCALAPPDATA%\DeepSeekHarnessDesktop`。
 
-“关于”窗口的“系统信息”页签会显示 Desktop、.NET、WebView2、Node.js、全局 DSH 路径和版本，以及最近一次 npm `latest` 手动查询结果，并提供本系统 GitHub 下载入口；“版本记录”页签显示系统历史版本和主要变更。
+Desktop 不会删除 Node.js、全局 DSH 或 npm 缓存；这些由用户自行管理。

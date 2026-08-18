@@ -10,8 +10,6 @@ namespace DeepSeekHarnessDesktop.ViewModels;
 
 public sealed partial class InstallationGuideViewModel : ObservableObject, IDisposable
 {
-    public const string ManualInstallCommandText =
-        "npx " + DshPackageMetadata.ValidatedPackageSpec + " web";
     private static readonly TimeSpan TimerInterval = TimeSpan.FromSeconds(1);
     private readonly IDependencyDiagnosticsService _diagnosticsService;
     private readonly IHarnessLifecycleCoordinator _coordinator;
@@ -19,7 +17,6 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
     private readonly IExternalLinkLauncher _linkLauncher;
     private readonly IUserConfirmationService _confirmation;
     private readonly IClipboardService? _clipboard;
-    private readonly ITerminalLauncher? _terminalLauncher;
     private readonly TimeProvider _timeProvider;
     private readonly AppSettings _settings;
     private CancellationTokenSource? _timerCancellation;
@@ -37,7 +34,7 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
     private bool _isBusy;
 
     [ObservableProperty]
-    private string _stageMessage = "检查本机启动条件，然后通过 npx 准备 DSH。";
+    private string _stageMessage = "正在检查 WebView2、Node.js 和 DSH。";
 
     [ObservableProperty]
     private string _currentStage = "等待操作";
@@ -54,7 +51,6 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
         DependencyDiagnosticsResult diagnostics,
         AppSettings? settings = null,
         IClipboardService? clipboard = null,
-        ITerminalLauncher? terminalLauncher = null,
         TimeProvider? timeProvider = null)
     {
         _diagnosticsService = diagnosticsService;
@@ -65,20 +61,15 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
         _diagnostics = diagnostics;
         _settings = settings ?? new AppSettings { WorkspacePath = Path.GetTempPath() };
         _clipboard = clipboard;
-        _terminalLauncher = terminalLauncher;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _elapsedText = $"阶段 00:00 · 总计 00:00 / {TimeoutText}";
-        _isActive = !diagnostics.CanLaunchDsh;
+        _isActive = NeedsGuidedPreparation(diagnostics);
         RecentLogs = new ObservableCollection<ProcessOutputLine>(logBuffer.Snapshot());
         RecheckCommand = new AsyncRelayCommand(RecheckAsync, () => !IsBusy);
-        DownloadAndStartCommand = new AsyncRelayCommand(DownloadAndStartAsync, CanStart);
+        DownloadAndStartCommand = new AsyncRelayCommand(ContinueAsync, () => !IsBusy);
         CancelCommand = new AsyncRelayCommand(CancelAsync, () => IsBusy);
-        OpenNodeDownloadCommand = new RelayCommand(() => OpenResource(OfficialResource.NodeDownload));
         OpenDocumentationCommand = new RelayCommand(() => OpenResource(OfficialResource.DshDocumentation));
-        OpenNpmPackageCommand = new RelayCommand(() => OpenResource(OfficialResource.NpmPackage));
-        CopyManualInstallCommand = new RelayCommand(CopyManualCommand, () => _clipboard is not null);
         CopyLogsCommand = new RelayCommand(CopyLogs, () => _clipboard is not null && RecentLogs.Count != 0);
-        OpenPowerShellCommand = new RelayCommand(OpenPowerShell, () => _terminalLauncher is not null);
         CloseCommand = new RelayCommand(() => IsActive = false, () => !IsBusy);
         coordinator.StateChanged += OnStateChanged;
         logBuffer.LineAdded += OnLogLineAdded;
@@ -88,42 +79,54 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
     public IAsyncRelayCommand RecheckCommand { get; }
     public IAsyncRelayCommand DownloadAndStartCommand { get; }
     public IAsyncRelayCommand CancelCommand { get; }
-    public IRelayCommand OpenNodeDownloadCommand { get; }
     public IRelayCommand OpenDocumentationCommand { get; }
-    public IRelayCommand OpenNpmPackageCommand { get; }
-    public IRelayCommand CopyManualInstallCommand { get; }
     public IRelayCommand CopyLogsCommand { get; }
-    public IRelayCommand OpenPowerShellCommand { get; }
     public IRelayCommand CloseCommand { get; }
-    public bool HasGlobalDsh => Diagnostics.GlobalDsh.Status == DependencyStatus.Available;
+    public bool HasWebView2 => Diagnostics.WebView2.Status == DependencyStatus.Available;
+    public bool HasInstalledDsh => Diagnostics.GlobalDsh.Status == DependencyStatus.Available;
     public bool HasNode => Diagnostics.Node.Status == DependencyStatus.Available;
     public bool HasNpx => Diagnostics.Npx.Status == DependencyStatus.Available;
-    public bool CanLaunch => Diagnostics.CanLaunchDsh;
+    public bool CanLaunch => HasWebView2
+        && (_settings.Launch.Mode == LaunchMode.Custom || Diagnostics.CanLaunchDsh);
+    public string WebView2StatusText => FormatCheck(Diagnostics.WebView2);
     public string NodeStatusText => FormatCheck(Diagnostics.Node);
     public string NpxStatusText => FormatCheck(Diagnostics.Npx);
-    public string DshStatusText => HasGlobalDsh
-        ? $"全局可用 · {Diagnostics.GlobalDsh.Version ?? "版本未知"}"
-        : $"npx 自动准备已验证版本 · {DshPackageMetadata.ValidatedVersion}";
-    public string ManualInstallCommand => ManualInstallCommandText;
+    public string DshStatusText => HasInstalledDsh
+        ? $"已安装 · {Diagnostics.GlobalDsh.Version ?? "版本未知"}"
+        : HasNode && HasNpx
+            ? $"将按需下载固定版本 {DshPackageMetadata.ValidatedVersion}"
+            : "等待 Node.js 和 npx";
+    public string PrimaryActionText => !HasWebView2
+        ? "安装 WebView2"
+        : _settings.Launch.Mode == LaunchMode.Auto && !Diagnostics.CanLaunchDsh
+            ? "安装 Node.js"
+            : "准备并启动";
 
     public void Activate()
     {
         IsActive = true;
         StageMessage = CanLaunch
-            ? "启动条件已满足，可以准备并启动 DSH。"
-            : "请先安装 Node.js，再重新检查；也可以展开手动安装步骤。";
+            ? "环境检查通过，可以启动 DSH。"
+            : "请按当前按钮完成缺失项，安装后点击“重新检查”。";
         LogDiagnostics("打开安装引导");
     }
 
     partial void OnDiagnosticsChanged(DependencyDiagnosticsResult value)
     {
-        OnPropertyChanged(nameof(HasGlobalDsh));
+        OnPropertyChanged(nameof(HasWebView2));
+        OnPropertyChanged(nameof(HasInstalledDsh));
         OnPropertyChanged(nameof(HasNode));
         OnPropertyChanged(nameof(HasNpx));
         OnPropertyChanged(nameof(CanLaunch));
+        OnPropertyChanged(nameof(WebView2StatusText));
         OnPropertyChanged(nameof(NodeStatusText));
         OnPropertyChanged(nameof(NpxStatusText));
         OnPropertyChanged(nameof(DshStatusText));
+        OnPropertyChanged(nameof(PrimaryActionText));
+        if (_coordinator.Current.State is not (HarnessRuntimeState.RunningOwned or HarnessRuntimeState.RunningExternal))
+        {
+            IsActive = NeedsGuidedPreparation(value);
+        }
         DownloadAndStartCommand.NotifyCanExecuteChanged();
     }
 
@@ -135,21 +138,19 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
         CloseCommand.NotifyCanExecuteChanged();
     }
 
-    private bool CanStart() => !IsBusy && CanLaunch;
-
     private async Task RecheckAsync(CancellationToken cancellationToken)
     {
         IsBusy = true;
         BeginTiming("检查环境");
-        StageMessage = "正在重新读取系统和用户 PATH 并检查启动条件...";
-        _logBuffer.AddDesktop("开始重新检查 WebView2、全局 DSH、Node.js 和 npx。");
+        StageMessage = "正在重新读取系统和用户 PATH，并检查 WebView2、Node.js、npx 和 DSH...";
+        _logBuffer.AddDesktop("开始重新检查 WebView2、Node.js、npx 和 DSH。");
         try
         {
             Diagnostics = await _diagnosticsService.DiagnoseAsync(cancellationToken);
             LogDiagnostics("环境检查完成");
             StageMessage = CanLaunch
                 ? "启动条件已满足。"
-                : "仍缺少可用的 Node.js/npx 或全局 DSH；安装后可重新检查。";
+                : "仍有缺失项，请按当前按钮完成安装后重新检查。";
             FinishTiming(CanLaunch ? "环境检查通过" : "环境检查未通过");
         }
         catch (OperationCanceledException)
@@ -163,20 +164,34 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
         }
     }
 
-    private async Task DownloadAndStartAsync(CancellationToken cancellationToken)
+    private async Task ContinueAsync(CancellationToken cancellationToken)
     {
-        if (!HasGlobalDsh && !_confirmation.ConfirmDshDownload())
+        if (!HasWebView2)
         {
-            StageMessage = "已取消准备 DSH。";
-            _logBuffer.AddDesktop("用户取消了 npx 准备操作。");
+            OpenResource(OfficialResource.WebView2Download);
+            StageMessage = "请安装 WebView2 Runtime，完成后返回并点击“重新检查”。";
+            return;
+        }
+        if (_settings.Launch.Mode == LaunchMode.Auto && !Diagnostics.CanLaunchDsh)
+        {
+            OpenResource(OfficialResource.NodeDownload);
+            StageMessage = "请安装 Node.js LTS x64，完成后重新启动应用或点击“重新检查”。";
+            return;
+        }
+        if (_settings.Launch.Mode == LaunchMode.Auto
+            && !HasInstalledDsh
+            && !_confirmation.ConfirmDshDownload())
+        {
+            StageMessage = "已取消下载 DSH。";
+            _logBuffer.AddDesktop("用户取消了 npx 下载操作。");
             return;
         }
 
         IsBusy = true;
-        BeginTiming(HasGlobalDsh ? "启动全局 DSH" : "准备 npm 包");
-        StageMessage = HasGlobalDsh
-            ? "正在启动全局 DSH..."
-            : $"正在通过 npx 准备已验证的 DSH {DshPackageMetadata.ValidatedVersion}，最长等待 {TimeoutText}...";
+        BeginTiming(HasInstalledDsh ? "启动 DSH" : "下载并启动 DSH");
+        StageMessage = HasInstalledDsh
+            ? "正在启动已安装的 DSH..."
+            : $"正在通过 npx 下载并启动 DSH {DshPackageMetadata.ValidatedVersion}，最长等待 {TimeoutText}...";
         LogPreparation();
         try
         {
@@ -253,7 +268,7 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
     private void LogPreparation()
     {
         LogDiagnostics("开始准备");
-        var command = HasGlobalDsh
+        var command = HasInstalledDsh
             ? "dsh web"
             : $"npx -y {DshPackageMetadata.ValidatedPackageSpec} web";
         _logBuffer.AddDesktop(
@@ -265,9 +280,14 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
     {
         _logBuffer.AddDesktop(
             $"{prefix}：WebView2={Diagnostics.WebView2.Status}；"
-            + $"全局 DSH={Diagnostics.GlobalDsh.Status}；Node.js={Diagnostics.Node.Status}"
-            + $"{FormatVersion(Diagnostics.Node.Version)}；npx={Diagnostics.Npx.Status}。");
+            + $"DSH={Diagnostics.GlobalDsh.Status}；Node.js={Diagnostics.Node.Status}"
+            + $"{FormatVersion(Diagnostics.Node.Version)}；npx={Diagnostics.Npx.Status}。" );
     }
+
+    private bool NeedsGuidedPreparation(DependencyDiagnosticsResult diagnostics) =>
+        diagnostics.WebView2.Status != DependencyStatus.Available
+        || (_settings.Launch.Mode == LaunchMode.Auto
+            && diagnostics.GlobalDsh.Status != DependencyStatus.Available);
 
     private static string FormatCheck(DependencyCheck check) => check.Status switch
     {
@@ -360,21 +380,11 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
         cancellation?.Dispose();
     }
 
-    private void CopyManualCommand() => RunManualAction(
-        () => _clipboard!.SetText(ManualInstallCommandText),
-        "手动安装命令已复制。",
-        "复制手动安装命令");
-
     private void CopyLogs()
     {
         var text = string.Join(Environment.NewLine, _logBuffer.Snapshot().Select(line => line.DisplayText));
         RunManualAction(() => _clipboard!.SetText(text), "日志已复制。", "复制安装日志");
     }
-
-    private void OpenPowerShell() => RunManualAction(
-        () => _terminalLauncher!.OpenPowerShell(_settings.WorkspacePath),
-        "已在工作目录打开 PowerShell，请粘贴手动命令。",
-        "打开 PowerShell");
 
     private void OpenResource(OfficialResource resource) => RunManualAction(
         () => _linkLauncher.Open(resource),

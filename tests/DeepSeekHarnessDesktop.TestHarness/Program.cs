@@ -9,6 +9,8 @@ internal static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
+        Console.InputEncoding = System.Text.Encoding.UTF8;
         var mode = args.FirstOrDefault() ?? "--emit";
         switch (mode)
         {
@@ -36,6 +38,9 @@ internal static class Program
                 return 0;
             case "--child":
                 await Task.Delay(TimeSpan.FromSeconds(30));
+                return 0;
+            case "--echo-args":
+                Console.WriteLine("ARGS=" + string.Join("|", args.Skip(1)));
                 return 0;
             default:
                 return 2;

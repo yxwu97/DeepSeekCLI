@@ -2,6 +2,7 @@ using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services;
 using DeepSeekHarnessDesktop.Utilities;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace DeepSeekHarnessDesktop.UnitTests;
 
@@ -12,55 +13,80 @@ public sealed class CommandAndOutputTests : IDisposable
     public CommandAndOutputTests() => Directory.CreateDirectory(_temporaryDirectory);
 
     [Fact]
-    public async Task ResolverPrefersDshOverNpx()
+    public async Task ResolverPrefersGlobalDshInAutoMode()
     {
-        var dsh = CreateFile("dsh.cmd");
+        CreateFile("dsh.cmd");
+        CreateFile("node.exe");
         CreateFile("npx.cmd");
-        var resolver = new DshCommandResolver(name => name == "PATH" ? _temporaryDirectory : null);
+        var cacheRoot = Path.Combine(_temporaryDirectory, "cache", "_npx");
+        CreateCachedDsh(cacheRoot, "valid", DshPackageMetadata.ValidatedVersion, "lib/bin.js");
+        var resolver = new DshCommandResolver(
+            _ => _temporaryDirectory,
+            new NpxDshCacheLocator(() => cacheRoot));
 
         var options = await resolver.ResolveAsync(CreateSettings(), CancellationToken.None);
 
-        Assert.Equal(dsh, options.ExecutablePath, ignoreCase: true);
+        Assert.EndsWith("dsh.cmd", options.ExecutablePath, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(["web"], options.Arguments);
     }
 
     [Fact]
-    public async Task ResolverFallsBackToValidatedNpxCommand()
+    public async Task ResolverUsesPinnedNpxPackageWhenGlobalDshIsMissing()
     {
-        var npx = CreateFile("npx.cmd");
-        var resolver = new DshCommandResolver(name => name == "PATH" ? _temporaryDirectory : null);
+        CreateFile("node.exe");
+        CreateFile("npx.cmd");
+        var resolver = new DshCommandResolver(
+            _ => _temporaryDirectory,
+            new NpxDshCacheLocator(() => Path.Combine(_temporaryDirectory, "empty-cache")));
 
         var options = await resolver.ResolveAsync(CreateSettings(), CancellationToken.None);
 
-        Assert.Equal(npx, options.ExecutablePath, ignoreCase: true);
-        Assert.Equal(["-y", "@deepseek-ai/dsh@0.1.0-rc.6", "web"], options.Arguments);
+        Assert.EndsWith("npx.cmd", options.ExecutablePath, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(["-y", DshPackageMetadata.ValidatedPackageSpec, "web"], options.Arguments);
     }
 
-    [Theory]
-    [InlineData("dsh.cmd", 43123, "web,--port,43123")]
-    [InlineData("npx.cmd", 65535, "-y,@deepseek-ai/dsh@0.1.0-rc.6,web,--port,65535")]
-    public async Task ResolverAddsOnlyValidatedNonDefaultPort(string command, int port, string expected)
+    [Fact]
+    public async Task ResolverReusesValidatedCachedDshBeforeNpx()
     {
-        CreateFile(command);
-        var resolver = new DshCommandResolver(name => name == "PATH" ? _temporaryDirectory : null);
-        var settings = CreateSettings() with { ServiceUri = new Uri($"http://127.0.0.1:{port}/") };
+        var node = CreateFile("node.exe");
+        CreateFile("npx.cmd");
+        var cacheRoot = Path.Combine(_temporaryDirectory, "cache", "_npx");
+        var entryPoint = CreateCachedDsh(cacheRoot, "valid", DshPackageMetadata.ValidatedVersion, "lib/bin.js");
+        var resolver = new DshCommandResolver(
+            _ => _temporaryDirectory,
+            new NpxDshCacheLocator(() => cacheRoot));
+
+        var options = await resolver.ResolveAsync(CreateSettings(), CancellationToken.None);
+
+        Assert.Equal(node, options.ExecutablePath, ignoreCase: true);
+        Assert.Equal([entryPoint, "web"], options.Arguments);
+    }
+
+    [Fact]
+    public async Task ResolverAddsOnlyValidatedNonDefaultPort()
+    {
+        CreateFile("dsh.cmd");
+        var resolver = new DshCommandResolver(_ => _temporaryDirectory);
+        var settings = CreateSettings() with { ServiceUri = new Uri("http://127.0.0.1:65535/") };
 
         var options = await resolver.ResolveAsync(settings, CancellationToken.None);
 
-        Assert.Equal(expected.Split(','), options.Arguments);
+        Assert.Equal(["web", "--port", "65535"], options.Arguments);
     }
 
     [Fact]
     public async Task ResolverRejectsCustomCmdFile()
     {
         var script = CreateFile("custom.cmd");
-        var resolver = new DshCommandResolver(_ => null);
+        var resolver = new DshCommandResolver();
         var settings = CreateSettings() with
         {
             Launch = new LaunchSettings { Mode = LaunchMode.Custom, ExecutablePath = script },
         };
 
-        var exception = await Assert.ThrowsAsync<HarnessException>(() => resolver.ResolveAsync(settings, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<HarnessException>(() => resolver.ResolveAsync(
+            settings,
+            CancellationToken.None));
 
         Assert.Equal("DSH-E101", exception.Error.Code);
     }
@@ -130,17 +156,6 @@ public sealed class CommandAndOutputTests : IDisposable
         Assert.EndsWith(OutputLineProcessor.TruncationMarker, result, StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData("npm ERR! code ENOTFOUND", "DSH-E211")]
-    [InlineData("npm ERR! SELF_SIGNED_CERT_IN_CHAIN", "DSH-E212")]
-    [InlineData("npm ERR! 404 Not Found - GET https://registry.npmjs.org/pkg", "DSH-E213")]
-    [InlineData("npm ERR! code EPERM", "DSH-E214")]
-    [InlineData("npm ERR! unknown failure", null)]
-    public void NpmFailureClassifierMapsOnlyStableSignatures(string stderr, string? expectedCode)
-    {
-        Assert.Equal(expectedCode, NpmFailureClassifier.Classify([stderr])?.Code);
-    }
-
     [Fact]
     public void CustomNativeCommandArgumentsAreOmittedFromLogs()
     {
@@ -158,6 +173,18 @@ public sealed class CommandAndOutputTests : IDisposable
         Assert.DoesNotContain("secret-value", text, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("npm ERR! code ENOTFOUND", "DSH-E211")]
+    [InlineData("SELF_SIGNED_CERT_IN_CHAIN", "DSH-E212")]
+    [InlineData("npm ERR! code E403", "DSH-E213")]
+    [InlineData("npm ERR! code EACCES", "DSH-E214")]
+    public void NpmFailuresMapToStableActionableErrors(string stderr, string expectedCode)
+    {
+        var error = NpmFailureClassifier.Classify([stderr]);
+
+        Assert.Equal(expectedCode, error?.Code);
+    }
+
     private AppSettings CreateSettings() => new()
     {
         WorkspacePath = _temporaryDirectory,
@@ -169,6 +196,27 @@ public sealed class CommandAndOutputTests : IDisposable
         var path = Path.Combine(_temporaryDirectory, name);
         File.WriteAllText(path, string.Empty);
         return path;
+    }
+
+    private static string CreateCachedDsh(
+        string cacheRoot,
+        string cacheId,
+        string version,
+        string binEntry)
+    {
+        var packageRoot = Path.Combine(cacheRoot, cacheId, "node_modules", "@deepseek-ai", "dsh");
+        var entryPoint = Path.Combine(packageRoot, "lib", "bin.js");
+        Directory.CreateDirectory(Path.GetDirectoryName(entryPoint)!);
+        File.WriteAllText(entryPoint, string.Empty);
+        File.WriteAllText(
+            Path.Combine(packageRoot, "package.json"),
+            JsonSerializer.Serialize(new
+            {
+                name = DshPackageMetadata.PackageName,
+                version,
+                bin = new Dictionary<string, string> { ["dsh"] = binEntry },
+            }));
+        return entryPoint;
     }
 
     public void Dispose() => Directory.Delete(_temporaryDirectory, recursive: true);

@@ -23,10 +23,11 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
     private int? _ownedProcessId;
     private long? _ownedProcessGeneration;
     private ProcessExitedEventArgs? _pendingProcessExit;
-    private bool _awaitingProcessRegistration;
-    private Uri? _reportedUri;
+    private TaskCompletionSource<ProcessExitedEventArgs>? _launchExitSignal;
     private DateTimeOffset _ownedLaunchStartedAt;
     private bool _ownedLaunchUsesNpx;
+    private bool _awaitingProcessRegistration;
+    private Uri? _reportedUri;
     private int _startRequested;
     private bool _disposed;
 
@@ -80,6 +81,11 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
                     Commit(HarnessStateEvent.InvalidUri, generation, "服务地址无效", error: new HarnessError("DSH-E202", "服务地址无效", probe.Detail ?? string.Empty, true));
                     break;
                 case HealthProbeStatus.Unreachable when _settings.AutoStart:
+                    if (await RequiresInteractivePreparationAsync(token))
+                    {
+                        Commit(HarnessStateEvent.InitializationStopped, generation, "需要确认后下载并启动 DSH");
+                        break;
+                    }
                     Commit(HarnessStateEvent.InitializationAutoStart, generation, "正在准备 DSH 自动启动");
                     try
                     {
@@ -341,14 +347,56 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
     private static Uri NormalizeConfirmedUri(HealthProbeResult probe) =>
         ServiceUriValidator.NormalizeOrThrow(probe.FinalUri ?? probe.RequestedUri);
 
+    private async Task<bool> RequiresInteractivePreparationAsync(CancellationToken token)
+    {
+        if (_settings.Launch.Mode == LaunchMode.Custom)
+        {
+            return false;
+        }
+
+        try
+        {
+            var options = await _resolver.ResolveAsync(_settings, token);
+            return string.Equals(
+                Path.GetFileName(options.ExecutablePath),
+                "npx.cmd",
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (HarnessException exception) when (exception.Error.Code == "DSH-E101")
+        {
+            return true;
+        }
+    }
+
     private async Task StartOwnedAsync(long generation, CancellationToken token)
+    {
+        try
+        {
+            await StartOwnedAttemptAsync(generation, token);
+        }
+        catch
+        {
+            await StopFailedAttemptAsync();
+            throw;
+        }
+    }
+
+    private async Task StartOwnedAttemptAsync(long generation, CancellationToken token)
     {
         _reportedUri = null;
         var options = await _resolver.ResolveAsync(_settings, token);
         _recentLogs?.AddDesktop(
             $"启动命令：{LaunchCommandLogFormatter.Format(options)}；"
             + $"工作目录：{options.WorkingDirectory}；目标：{options.FallbackUri}；最长等待：{options.StartupTimeout.TotalMinutes:0} 分钟。");
-        PrepareOwnedProcessTracking(generation, options);
+        lock (_ownedProcessSync)
+        {
+            _ownedLaunchStartedAt = DateTimeOffset.UtcNow;
+            _ownedLaunchUsesNpx = string.Equals(
+                Path.GetFileName(options.ExecutablePath),
+                "npx.cmd",
+                StringComparison.OrdinalIgnoreCase);
+        }
+        PrepareOwnedProcessTracking(generation);
         HarnessProcessInfo process;
         try
         {
@@ -361,14 +409,22 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         }
         TrackOwnedProcess(process, generation);
         token.ThrowIfCancellationRequested();
-        var launchMessage = IsNpxLaunch(options)
-            ? $"正在通过 npx 自动准备并启动 DSH，无需手动操作，最长等待 {FormatStartupTimeout(options.StartupTimeout)}"
-            : "DSH 进程已创建，正在等待服务就绪";
+        var launchMessage = $"DSH 进程已创建，正在等待服务就绪，最长等待 {FormatStartupTimeout(options.StartupTimeout)}";
         Commit(HarnessStateEvent.ProcessStarted, generation, launchMessage, processId: process.ProcessId);
-        var ready = await _healthMonitor.WaitUntilReadyAsync(
+        using var readinessCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var readyTask = _healthMonitor.WaitUntilReadyAsync(
             () => _reportedUri ?? options.FallbackUri,
             options.StartupTimeout,
-            token);
+            readinessCts.Token);
+        var exitTask = GetLaunchExitTask();
+        if (exitTask.IsCompleted || await Task.WhenAny(exitTask, readyTask) == exitTask)
+        {
+            var exited = await exitTask;
+            readinessCts.Cancel();
+            try { await readyTask; } catch (OperationCanceledException) { }
+            throw new HarnessException(ClassifyUnexpectedExit(exited));
+        }
+        var ready = await readyTask;
         token.ThrowIfCancellationRequested();
         if (ready.Status != HealthProbeStatus.DshConfirmed || ready.FinalUri is null)
         {
@@ -382,7 +438,14 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
             throw new HarnessException(error);
         }
 
+        ClearLaunchExitSignal();
         Commit(HarnessStateEvent.HealthReady, generation, "应用实例运行中", NormalizeConfirmedUri(ready), process.ProcessId);
+    }
+
+    private async Task StopFailedAttemptAsync()
+    {
+        UntrackOwnedProcess();
+        await _processManager.StopAsync(CancellationToken.None);
     }
 
     private void CommitPreflight(HealthProbeResult result, long generation)
@@ -512,7 +575,10 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
 
         if (generation is { } value)
         {
-            HandleUnexpectedProcessExit(e, value);
+            if (!TrySignalLaunchExit(e))
+            {
+                HandleUnexpectedProcessExit(e, value);
+            }
         }
     }
 
@@ -535,11 +601,14 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
 
         if (pendingExit is not null)
         {
-            HandleUnexpectedProcessExit(pendingExit, generation);
+            if (!TrySignalLaunchExit(pendingExit))
+            {
+                HandleUnexpectedProcessExit(pendingExit, generation);
+            }
         }
     }
 
-    private void PrepareOwnedProcessTracking(long generation, DshLaunchOptions options)
+    private void PrepareOwnedProcessTracking(long generation)
     {
         lock (_ownedProcessSync)
         {
@@ -547,15 +616,10 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
             _ownedProcessId = null;
             _ownedProcessGeneration = generation;
             _pendingProcessExit = null;
-            _ownedLaunchStartedAt = DateTimeOffset.UtcNow;
-            _ownedLaunchUsesNpx = IsNpxLaunch(options);
+            _launchExitSignal = new TaskCompletionSource<ProcessExitedEventArgs>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
         }
     }
-
-    private static bool IsNpxLaunch(DshLaunchOptions options) => string.Equals(
-        Path.GetFileName(options.ExecutablePath),
-        "npx.cmd",
-        StringComparison.OrdinalIgnoreCase);
 
     private static string FormatStartupTimeout(TimeSpan timeout) =>
         timeout.TotalSeconds >= 60 && timeout.TotalSeconds % 60 == 0
@@ -570,8 +634,31 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
             _ownedProcessId = null;
             _ownedProcessGeneration = null;
             _pendingProcessExit = null;
-            _ownedLaunchStartedAt = default;
-            _ownedLaunchUsesNpx = false;
+            _launchExitSignal = null;
+        }
+    }
+
+    private Task<ProcessExitedEventArgs> GetLaunchExitTask()
+    {
+        lock (_ownedProcessSync)
+        {
+            return (_launchExitSignal ?? throw new InvalidOperationException("Launch exit signal is not initialized.")).Task;
+        }
+    }
+
+    private bool TrySignalLaunchExit(ProcessExitedEventArgs args)
+    {
+        lock (_ownedProcessSync)
+        {
+            return _launchExitSignal?.TrySetResult(args) == true;
+        }
+    }
+
+    private void ClearLaunchExitSignal()
+    {
+        lock (_ownedProcessSync)
+        {
+            _launchExitSignal = null;
         }
     }
 

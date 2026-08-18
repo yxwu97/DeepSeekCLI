@@ -1,6 +1,7 @@
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services;
 using DeepSeekHarnessDesktop.TestHarness;
+using DeepSeekHarnessDesktop.Utilities;
 
 namespace DeepSeekHarnessDesktop.IntegrationTests;
 
@@ -63,6 +64,90 @@ public sealed class HarnessProcessManagerTests
 
         Assert.Equal(info.ProcessId, result.ProcessId);
         Assert.Equal(23, result.ExitCode);
+    }
+
+    [Fact]
+    public async Task SuspendedLauncherPreservesStructuredArguments()
+    {
+        await using var manager = new HarnessProcessManager();
+        var output = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        manager.OutputReceived += (_, args) =>
+        {
+            if (args.Line.Text.StartsWith("ARGS=", StringComparison.Ordinal))
+            {
+                output.TrySetResult(args.Line.Text);
+            }
+        };
+        var options = CreateOptions("--echo-args") with
+        {
+            Arguments =
+            [
+                typeof(HarnessMarker).Assembly.Location,
+                "--echo-args",
+                "space value",
+                "quote\"value",
+                "trailing\\",
+                "&|<>^%!()中文",
+            ],
+        };
+
+        await manager.StartAsync(options, CancellationToken.None);
+        var result = await output.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal("ARGS=space value|quote\"value|trailing\\|&|<>^%!()中文", result);
+    }
+
+    [Fact]
+    public async Task SuspendedLauncherExecutesValidatedNpxCmdAndReapsProcess()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "DSH-IntegrationTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var script = Path.Combine(directory, "npx.cmd");
+            await File.WriteAllTextAsync(script, """
+                @echo off
+                if not "%~1"=="-y" exit /b 41
+                if not "%~2"=="@deepseek-ai/dsh@0.1.0-rc.6" exit /b 42
+                if not "%~3"=="web" exit /b 43
+                if not "%~4"=="" exit /b 44
+                echo NPX_CMD_OK
+                exit /b 0
+                """);
+
+            await using var manager = new HarnessProcessManager();
+            var output = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var exited = new TaskCompletionSource<ProcessExitedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+            manager.OutputReceived += (_, args) =>
+            {
+                if (args.Line.Text == "NPX_CMD_OK")
+                {
+                    output.TrySetResult(args.Line.Text);
+                }
+            };
+            manager.ProcessExited += (_, args) => exited.TrySetResult(args);
+            var options = new DshLaunchOptions
+            {
+                ExecutablePath = script,
+                Arguments = ["-y", DshPackageMetadata.ValidatedPackageSpec, "web"],
+                WorkingDirectory = directory,
+                FallbackUri = new Uri("http://127.0.0.1:43123/"),
+            };
+
+            var info = await manager.StartAsync(options, CancellationToken.None);
+            Assert.Equal("NPX_CMD_OK", await output.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+            var result = await exited.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(info.ProcessId, result.ProcessId);
+            Assert.Equal(0, result.ExitCode);
+            Assert.False(manager.IsRunning);
+            Assert.Null(manager.Current);
+            await AssertProcessExitedAsync(info.ProcessId);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     private static DshLaunchOptions CreateOptions(string mode)

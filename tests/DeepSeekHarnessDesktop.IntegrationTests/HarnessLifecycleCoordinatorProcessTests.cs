@@ -164,7 +164,9 @@ public sealed class HarnessLifecycleCoordinatorProcessTests
 
     private sealed class FixedResolver(DshLaunchOptions options) : IDshCommandResolver
     {
-        public Task<DshLaunchOptions> ResolveAsync(AppSettings settings, CancellationToken cancellationToken) =>
+        public Task<DshLaunchOptions> ResolveAsync(
+            AppSettings settings,
+            CancellationToken cancellationToken) =>
             Task.FromResult(options);
     }
 

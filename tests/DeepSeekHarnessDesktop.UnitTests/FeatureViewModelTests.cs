@@ -19,7 +19,7 @@ public sealed class FeatureViewModelTests
     }
 
     [Fact]
-    public async Task InstallationGuideRequiresConfirmationBeforeNpxStart()
+    public async Task InstallationGuideDoesNotDownloadDshWithoutConfirmation()
     {
         var coordinator = new FakeCoordinator(Stopped());
         using var viewModel = CreateInstallationGuide(coordinator, new FakeConfirmation(false));
@@ -27,7 +27,76 @@ public sealed class FeatureViewModelTests
         await viewModel.DownloadAndStartCommand.ExecuteAsync(null);
 
         Assert.Equal(0, coordinator.StartCount);
-        Assert.Contains("取消", viewModel.StageMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task InstallationGuideStartsCachedDshWithoutDownloadConfirmation()
+    {
+        var coordinator = new FakeCoordinator(Stopped());
+        using var viewModel = CreateInstallationGuide(
+            coordinator,
+            new FakeConfirmation(false),
+            diagnostics: InstalledDshDiagnostics());
+
+        await viewModel.DownloadAndStartCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, coordinator.StartCount);
+        Assert.Contains("已安装", viewModel.DshStatusText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MainStartRoutesNpxPreparationThroughInstallationGuide()
+    {
+        var coordinator = new FakeCoordinator(Stopped());
+        using var guide = CreateInstallationGuide(coordinator, new FakeConfirmation(true));
+        guide.IsActive = false;
+        using var main = new MainWindowViewModel(
+            coordinator,
+            new FakeNavigation(),
+            new FakeWorkspacePicker(),
+            new RecentLogBuffer(),
+            new AppSettings { WorkspacePath = Path.GetTempPath() },
+            LaunchableDiagnostics(),
+            guide);
+
+        await main.StartCommand.ExecuteAsync(null);
+
+        Assert.True(guide.IsActive);
+        Assert.Equal(0, coordinator.StartCount);
+    }
+
+    [Fact]
+    public async Task InstallationGuideOffersWebView2BeforeNode()
+    {
+        var linkLauncher = new FakeLinkLauncher();
+        var diagnostics = MissingDiagnostics(webViewAvailable: false, nodeAvailable: false);
+        using var viewModel = CreateInstallationGuide(
+            new FakeCoordinator(Stopped()),
+            new FakeConfirmation(true),
+            diagnostics: diagnostics,
+            linkLauncher: linkLauncher);
+
+        await viewModel.DownloadAndStartCommand.ExecuteAsync(null);
+
+        Assert.Equal("安装 WebView2", viewModel.PrimaryActionText);
+        Assert.Equal(OfficialResource.WebView2Download, linkLauncher.LastResource);
+    }
+
+    [Fact]
+    public async Task InstallationGuideOffersNodeAfterWebView2IsAvailable()
+    {
+        var linkLauncher = new FakeLinkLauncher();
+        var diagnostics = MissingDiagnostics(webViewAvailable: true, nodeAvailable: false);
+        using var viewModel = CreateInstallationGuide(
+            new FakeCoordinator(Stopped()),
+            new FakeConfirmation(true),
+            diagnostics: diagnostics,
+            linkLauncher: linkLauncher);
+
+        await viewModel.DownloadAndStartCommand.ExecuteAsync(null);
+
+        Assert.Equal("安装 Node.js", viewModel.PrimaryActionText);
+        Assert.Equal(OfficialResource.NodeDownload, linkLauncher.LastResource);
     }
 
     [Fact]
@@ -76,7 +145,7 @@ public sealed class FeatureViewModelTests
         await viewModel.CheckUpdateCommand.ExecuteAsync(null);
 
         Assert.Same(expected, viewModel.UpdateResult);
-        Assert.Contains("已验证版本 0.1.0-rc.6", viewModel.UpdateStatus, StringComparison.Ordinal);
+        Assert.Contains("固定版本 0.1.0-rc.6", viewModel.UpdateStatus, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -116,23 +185,16 @@ public sealed class FeatureViewModelTests
     }
 
     [Fact]
-    public void InstallationGuideManualActionsUseFixedCommandAndValidatedWorkspace()
+    public void InstallationGuideShowsSystemEnvironmentAndConfiguredTimeout()
     {
-        var clipboard = new FakeClipboard();
-        var terminal = new FakeTerminalLauncher();
         var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), StartupTimeoutSeconds = 45 };
         using var viewModel = CreateInstallationGuide(
             new FakeCoordinator(Stopped()),
             new FakeConfirmation(true),
-            settings,
-            clipboard,
-            terminal);
+            settings);
 
-        viewModel.CopyManualInstallCommand.Execute(null);
-        viewModel.OpenPowerShellCommand.Execute(null);
-
-        Assert.Equal("npx @deepseek-ai/dsh@0.1.0-rc.6 web", clipboard.Text);
-        Assert.Equal(settings.WorkspacePath, terminal.WorkingDirectory);
+        Assert.Contains("0.1.0-rc.6", viewModel.DshStatusText, StringComparison.Ordinal);
+        Assert.Contains("v24", viewModel.NodeStatusText, StringComparison.Ordinal);
         Assert.EndsWith("/ 00:45", viewModel.ElapsedText, StringComparison.Ordinal);
     }
 
@@ -140,15 +202,18 @@ public sealed class FeatureViewModelTests
     public void InstallationGuideManualActionFailureRemainsRetryable()
     {
         var clipboard = new FakeClipboard { Failure = new InvalidOperationException("busy") };
+        var logs = new RecentLogBuffer();
+        logs.AddDesktop("diagnostic");
         using var viewModel = CreateInstallationGuide(
             new FakeCoordinator(Stopped()),
             new FakeConfirmation(true),
-            clipboard: clipboard);
+            clipboard: clipboard,
+            logBuffer: logs);
 
-        viewModel.CopyManualInstallCommand.Execute(null);
+        viewModel.CopyLogsCommand.Execute(null);
 
         Assert.Contains("失败", viewModel.StageMessage, StringComparison.Ordinal);
-        Assert.True(viewModel.CopyManualInstallCommand.CanExecute(null));
+        Assert.True(viewModel.CopyLogsCommand.CanExecute(null));
     }
 
     [Fact]
@@ -183,21 +248,21 @@ public sealed class FeatureViewModelTests
         FakeConfirmation confirmation,
         AppSettings? settings = null,
         IClipboardService? clipboard = null,
-        ITerminalLauncher? terminalLauncher = null,
         IRecentLogBuffer? logBuffer = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        DependencyDiagnosticsResult? diagnostics = null,
+        FakeLinkLauncher? linkLauncher = null)
     {
-        var diagnostics = LaunchableDiagnostics();
+        diagnostics ??= LaunchableDiagnostics();
         return new InstallationGuideViewModel(
             new FakeDiagnosticsService(diagnostics),
             coordinator,
             logBuffer ?? new RecentLogBuffer(),
-            new FakeLinkLauncher(),
+            linkLauncher ?? new FakeLinkLauncher(),
             confirmation,
             diagnostics,
             settings,
             clipboard,
-            terminalLauncher,
             timeProvider);
     }
 
@@ -208,6 +273,24 @@ public sealed class FeatureViewModelTests
         new DependencyCheck(DependencyStatus.Missing),
         new DependencyCheck(DependencyStatus.Available, Version: "v24"),
         new DependencyCheck(DependencyStatus.Available, Path: "npx.cmd"),
+        []);
+
+    private static DependencyDiagnosticsResult InstalledDshDiagnostics() => new(
+        "0.9.2",
+        "8.0.0",
+        new DependencyCheck(DependencyStatus.Available, Version: "140.0"),
+        new DependencyCheck(DependencyStatus.Available, Path: "cached-bin.js", Version: "0.1.0-rc.6"),
+        new DependencyCheck(DependencyStatus.Available, Path: "node.exe", Version: "v24"),
+        new DependencyCheck(DependencyStatus.Available, Path: "npx.cmd"),
+        []);
+
+    private static DependencyDiagnosticsResult MissingDiagnostics(bool webViewAvailable, bool nodeAvailable) => new(
+        "0.9.0",
+        "8.0.0",
+        new DependencyCheck(webViewAvailable ? DependencyStatus.Available : DependencyStatus.Missing),
+        new DependencyCheck(DependencyStatus.Missing),
+        new DependencyCheck(nodeAvailable ? DependencyStatus.Available : DependencyStatus.Missing),
+        new DependencyCheck(DependencyStatus.Missing),
         []);
 
     private static HarnessStateSnapshot Stopped() => new(
