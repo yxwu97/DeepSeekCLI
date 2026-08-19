@@ -32,10 +32,8 @@ if (Test-Path -LiteralPath $publishDirectory) {
 
 dotnet publish $project `
     -c $Configuration `
-    -r $Runtime `
-    --self-contained false `
     --no-restore `
-    -p:PublishSingleFile=false `
+    -p:PlatformTarget=x64 `
     -p:DebugType=None `
     -p:DebugSymbols=false `
     -o $publishDirectory

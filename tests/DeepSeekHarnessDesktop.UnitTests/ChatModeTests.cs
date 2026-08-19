@@ -218,7 +218,7 @@ public sealed class ChatModeTests
         public Task StopAsync(CancellationToken cancellationToken) { StopCount++; return Task.CompletedTask; }
         public Task RestartAsync(CancellationToken cancellationToken) { RestartCount++; return Task.CompletedTask; }
         public Task ApplyServiceUriAsync(Uri serviceUri, CancellationToken cancellationToken) => Task.CompletedTask;
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync() => new();
     }
 
     private sealed class FakeConfirmation(bool result) : IUserConfirmationService

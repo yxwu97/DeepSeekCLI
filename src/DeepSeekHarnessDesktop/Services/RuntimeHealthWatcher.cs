@@ -16,9 +16,9 @@ public sealed class RuntimeHealthWatcher(
         CancellationToken cancellationToken)
     {
         var unreachableCount = 0;
-        using var timer = new PeriodicTimer(_interval);
-        while (await timer.WaitForNextTickAsync(cancellationToken))
+        while (true)
         {
+            await Task.Delay(_interval, cancellationToken);
             var result = await healthMonitor.ProbeAsync(uri, TimeSpan.FromSeconds(2), cancellationToken);
             switch (result.Status)
             {
@@ -44,6 +44,5 @@ public sealed class RuntimeHealthWatcher(
             }
         }
 
-        return null;
     }
 }

@@ -13,6 +13,8 @@
     <ApplicationIcon>Assets\App.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\..\Compatibility\NetFrameworkCompatibility.cs"
+             Link="Compatibility\NetFrameworkCompatibility.cs" />
     <Using Remove="System.Drawing" />
     <Using Remove="System.Windows.Forms" />
   </ItemGroup>
@@ -24,10 +26,20 @@
     <PackageReference Include="NuGet.Versioning" />
     <PackageReference Include="Serilog.Extensions.Logging" />
     <PackageReference Include="Serilog.Sinks.File" />
+    <PackageReference Include="System.Text.Json" />
+    <PackageReference Include="System.Memory" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="..\..\VERSION_HISTORY.md"
                       Link="Resources\VERSION_HISTORY.md"
                       LogicalName="DeepSeekHarnessDesktop.VERSION_HISTORY.md" />
+    <Content Include="..\..\eng\dsh-runtime\package.json"
+             Link="dsh-runtime\package.json"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\eng\dsh-runtime\package-lock.json"
+             Link="dsh-runtime\package-lock.json"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -6,25 +6,25 @@ DeepSeek Harness Desktop 是面向 Windows 10/11 x64 的轻量 WPF 宿主。它�
 
 ## 技术实现
 
-- C# / .NET 8
+- C# / .NET Framework 4.8
 - WPF + CommunityToolkit.Mvvm
 - Microsoft Edge WebView2
 - Microsoft.Extensions.DependencyInjection
 - Serilog
 
-发布包采用 framework-dependent 模式，不携带 .NET、Node.js 或 DSH。目标机需安装 .NET 8 Desktop Runtime；应用启动后会依次检查 WebView2、Node.js、npx 和 DSH，并按当前缺失项引导安装。
+发布包采用 .NET Framework 4.8 轻量模式，不携带 CoreCLR、Node.js 或 DSH。Windows 11 和已更新的 Windows 10 通常已包含 .NET Framework 4.8；应用启动后会检查 WebView2、Node.js/npm 和可复用 DSH，并按当前缺失项引导处理。
 
 ## 主要能力
 
-- 优先启动 PATH 中已安装的 `dsh.cmd`，其次直接复用当前用户 npx 缓存中已准备好的固定版本 DSH。
-- 只有没有可复用 DSH 时，才经用户确认通过 npx 下载并启动 `@deepseek-ai/dsh@0.1.0-rc.6`。
-- 一个主操作按 WebView2、Node.js、npx、DSH 的顺序处理环境缺失。
+- 优先复用 PATH 中手动/全局安装的 `dsh.cmd`，其次复用 Desktop 私有安装，再复用严格校验的当前用户 npx 缓存。
+- 只有没有可复用 DSH 时，才经用户确认用精确 lockfile 执行一次 `npm ci --omit=dev`；后续直接运行私有固定入口，不再下载。
+- 保留固定全局安装和手动 npx 启动入口；Desktop 只复制命令并打开 PowerShell，不自动执行。
 - 只停止或重启本程序创建的 Owned DSH 进程树；外部 DSH 仅连接。
 - 使用 Job Object、串行生命周期和 generation 校验处理退出、取消和重启竞态。
 - 只接受 loopback DSH 服务并验证 HTTP 身份，Code WebView2 保持同源。
 - Chat 使用独立 profile，只允许精确官方 HTTPS origin，权限默认拒绝、下载默认取消。
 - 配置原子写入，外部日志规范化、限长并脱敏。
-- framework-dependent 发布门禁限制 ZIP 不超过 30 MiB、主 EXE 不超过 5 MiB。
+- net48 发布门禁限制 ZIP 不超过 30 MiB、主 EXE 不超过 5 MiB，并拒绝 CoreCLR 运行时文件。
 
 ## 使用与开发
 

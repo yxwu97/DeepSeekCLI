@@ -34,10 +34,10 @@ public sealed class NpxDshCacheLocator
             return null;
         }
 
-        foreach (var candidate in EnumerateCandidates(cacheRoot))
+        foreach (var candidate in EnumerateCandidates(cacheRoot!))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var installation = await ValidateCandidateAsync(candidate, nodePath, cancellationToken);
+            var installation = await ValidateCandidateAsync(candidate, nodePath!, cancellationToken);
             if (installation is not null)
             {
                 return installation;
@@ -107,7 +107,7 @@ public sealed class NpxDshCacheLocator
                 return null;
             }
 
-            await using var stream = new FileStream(
+            using var stream = new FileStream(
                 manifestPath,
                 FileMode.Open,
                 FileAccess.Read,

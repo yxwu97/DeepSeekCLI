@@ -28,7 +28,7 @@ public sealed class ExternalLinkLauncher : IExternalLinkLauncher
 
     public void Open(Uri uri)
     {
-        ArgumentNullException.ThrowIfNull(uri);
+        if (uri is null) throw new ArgumentNullException(nameof(uri));
         if (!uri.IsAbsoluteUri
             || uri.UserInfo.Length != 0
             || uri.Scheme is not ("http" or "https"))

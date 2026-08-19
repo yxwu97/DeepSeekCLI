@@ -15,7 +15,10 @@ public sealed class UserConfirmationService : IUserConfirmationService
 
     public bool ConfirmDshDownload() => MessageBox.Show(
         Application.Current?.MainWindow,
-        $"应用将通过 npx 下载并启动固定版本 DSH {DshPackageMetadata.ValidatedVersion}。此操作会访问 npm registry 并写入当前用户 npm 缓存。是否继续？",
+        $"应用将从 npm registry 下载锁定的 DSH {DshPackageMetadata.ValidatedVersion} 完整依赖图。\n\n"
+        + "安装位置：%LOCALAPPDATA%\\DeepSeekHarnessDesktop\\dsh\n"
+        + "预计磁盘占用：约 300 MiB\n\n"
+        + "安装成功后会直接复用，不会在每次启动时重复下载。是否继续？",
         "准备并启动 DSH",
         MessageBoxButton.YesNo,
         MessageBoxImage.Question) == MessageBoxResult.Yes;

@@ -20,7 +20,7 @@ public sealed class PresentationServiceTests
 
         Assert.Equal(RecentLogBuffer.Capacity, lines.Count);
         Assert.Equal("5", lines[0].Text);
-        Assert.Equal("1004", lines[^1].Text);
+        Assert.Equal("1004", lines[lines.Count - 1].Text);
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public sealed class PresentationServiceTests
         public Task StopAsync(CancellationToken cancellationToken) { StopCount++; return Task.CompletedTask; }
         public Task RestartAsync(CancellationToken cancellationToken) { RestartCount++; return Task.CompletedTask; }
         public Task ApplyServiceUriAsync(Uri serviceUri, CancellationToken cancellationToken) => Task.CompletedTask;
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync() => new();
     }
 
     private sealed class FakeNavigation : ICodeWebViewService

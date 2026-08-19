@@ -42,7 +42,7 @@ public sealed class HarnessProcessManager : IHarnessProcessManager
         DshLaunchOptions options,
         CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed) throw new ObjectDisposedException(nameof(HarnessProcessManager));
         await _gate.WaitAsync(cancellationToken);
         try
         {
@@ -119,10 +119,7 @@ public sealed class HarnessProcessManager : IHarnessProcessManager
             {
                 try
                 {
-                    if (!process.HasExited)
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
+                    if (!process.HasExited) job?.Dispose();
                 }
                 catch (InvalidOperationException)
                 {

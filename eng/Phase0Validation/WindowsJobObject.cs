@@ -11,7 +11,7 @@ internal sealed class WindowsJobObject : IDisposable
 
     public WindowsJobObject()
     {
-        _handle = NativeMethods.CreateJobObject(nint.Zero, null);
+        _handle = NativeMethods.CreateJobObject(IntPtr.Zero, null);
         if (_handle.IsInvalid)
         {
             throw new Win32Exception(Marshal.GetLastWin32Error());

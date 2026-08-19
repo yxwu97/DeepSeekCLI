@@ -64,7 +64,7 @@ public partial class InstallationGuideView : UserControl
         {
             if (_followLatest && _viewModel?.RecentLogs.Count is > 0)
             {
-                InstallLogList.ScrollIntoView(_viewModel.RecentLogs[^1]);
+                InstallLogList.ScrollIntoView(_viewModel.RecentLogs[_viewModel.RecentLogs.Count - 1]);
             }
         }, DispatcherPriority.Background);
     }

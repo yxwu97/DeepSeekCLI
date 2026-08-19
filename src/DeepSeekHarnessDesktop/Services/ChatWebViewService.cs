@@ -39,7 +39,7 @@ public sealed class ChatWebViewService : IChatWebViewService, IAsyncDisposable
 
     public void Attach(WebView2 browser)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed) throw new ObjectDisposedException(nameof(ChatWebViewService));
         if (_browser is not null && !ReferenceEquals(_browser, browser))
         {
             throw new InvalidOperationException("A Chat WebView2 control is already attached.");
@@ -193,7 +193,7 @@ public sealed class ChatWebViewService : IChatWebViewService, IAsyncDisposable
 
     public static bool IsWithinUserDataFolder(string profilePath, string userDataFolder)
     {
-        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(userDataFolder))
+        var root = PathCompatibility.TrimEndingDirectorySeparator(userDataFolder)
             + Path.DirectorySeparatorChar;
         var candidate = Path.GetFullPath(profilePath);
         return candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase);

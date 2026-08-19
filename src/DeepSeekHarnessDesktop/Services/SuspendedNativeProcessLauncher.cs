@@ -29,8 +29,8 @@ internal static class SuspendedNativeProcessLauncher
             if (!NativeMethods.CreateProcess(
                     command.ExecutablePath,
                     commandLine,
-                    nint.Zero,
-                    nint.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
                     true,
                     CreateSuspended | CreateNoWindow | CreateUnicodeEnvironment,
                     environment,
@@ -48,12 +48,12 @@ internal static class SuspendedNativeProcessLauncher
             stdin.DisposeLocalCopyOfClientHandle();
             stdin.Dispose();
             var launch = new SuspendedProcessLaunch(process, stdout, stderr, processInfo.ThreadHandle);
-            processInfo.ThreadHandle = nint.Zero;
+            processInfo.ThreadHandle = IntPtr.Zero;
             return launch;
         }
         catch
         {
-            if (processInfo.ProcessHandle != nint.Zero)
+            if (processInfo.ProcessHandle != IntPtr.Zero)
             {
                 NativeMethods.TerminateProcess(processInfo.ProcessHandle, 1);
             }
@@ -64,8 +64,8 @@ internal static class SuspendedNativeProcessLauncher
         }
         finally
         {
-            if (processInfo.ThreadHandle != nint.Zero) NativeMethods.CloseHandle(processInfo.ThreadHandle);
-            if (processInfo.ProcessHandle != nint.Zero) NativeMethods.CloseHandle(processInfo.ProcessHandle);
+            if (processInfo.ThreadHandle != IntPtr.Zero) NativeMethods.CloseHandle(processInfo.ThreadHandle);
+            if (processInfo.ProcessHandle != IntPtr.Zero) NativeMethods.CloseHandle(processInfo.ProcessHandle);
             Marshal.FreeHGlobal(environment);
         }
     }
@@ -80,11 +80,20 @@ internal static class SuspendedNativeProcessLauncher
         var extension = Path.GetExtension(options.ExecutablePath);
         if (string.Equals(extension, ".cmd", StringComparison.OrdinalIgnoreCase))
         {
-            var startInfo = CmdCommandLineBuilder.Build(
-                options.ExecutablePath,
-                options.Arguments,
-                options.WorkingDirectory,
-                options.Environment);
+            var startInfo = string.Equals(
+                Path.GetFileName(options.ExecutablePath),
+                "npm.cmd",
+                StringComparison.OrdinalIgnoreCase)
+                    ? NpmCommandLineBuilder.Build(
+                        options.ExecutablePath,
+                        options.Arguments,
+                        options.WorkingDirectory,
+                        options.Environment)
+                    : CmdCommandLineBuilder.Build(
+                        options.ExecutablePath,
+                        options.Arguments,
+                        options.WorkingDirectory,
+                        options.Environment);
             return new LaunchCommand(
                 startInfo.FileName,
                 $"{QuoteArgument(startInfo.FileName)} {startInfo.Arguments}");
@@ -116,18 +125,22 @@ internal static class SuspendedNativeProcessLauncher
 
     private static nint BuildEnvironmentBlock(IReadOnlyDictionary<string, string> overrides)
     {
-        var values = Environment.GetEnvironmentVariables()
-            .Cast<System.Collections.DictionaryEntry>()
-            .ToDictionary(entry => (string)entry.Key, entry => (string?)entry.Value ?? string.Empty, StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, value) in overrides)
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
+            values[(string)entry.Key] = (string?)entry.Value ?? string.Empty;
+        }
+        foreach (var pair in overrides)
+        {
+            var name = pair.Key;
+            var value = pair.Value;
             if (name.Contains('=') || name.IndexOf('\0') >= 0 || value.IndexOf('\0') >= 0)
             {
                 throw new ArgumentException("Process environment contains an invalid name or value.");
             }
             values[name] = value;
         }
-        var block = string.Join('\0', values.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+        var block = string.Join("\0", values.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
             .Select(pair => $"{pair.Key}={pair.Value}")) + "\0\0";
         return Marshal.StringToHGlobalUni(block);
     }
@@ -135,7 +148,7 @@ internal static class SuspendedNativeProcessLauncher
     private static string BuildCommandLine(string executable, IReadOnlyList<string> arguments)
     {
         var values = new[] { executable }.Concat(arguments);
-        return string.Join(' ', values.Select(QuoteArgument));
+        return string.Join(" ", values.Select(QuoteArgument));
     }
 
     internal static string QuoteArgument(string value)
@@ -246,8 +259,8 @@ internal sealed class SuspendedProcessLaunch(
 
     public void Resume()
     {
-        var handle = Interlocked.Exchange(ref _threadHandle, nint.Zero);
-        if (handle == nint.Zero)
+        var handle = Interlocked.Exchange(ref _threadHandle, IntPtr.Zero);
+        if (handle == IntPtr.Zero)
         {
             throw new InvalidOperationException("The process has already been resumed.");
         }
@@ -266,8 +279,8 @@ internal sealed class SuspendedProcessLaunch(
 
     public void Dispose()
     {
-        var handle = Interlocked.Exchange(ref _threadHandle, nint.Zero);
-        if (handle != nint.Zero)
+        var handle = Interlocked.Exchange(ref _threadHandle, IntPtr.Zero);
+        if (handle != IntPtr.Zero)
         {
             SuspendedNativeProcessLauncher.NativeMethods.TerminateProcess(Process.Handle, 1);
             SuspendedNativeProcessLauncher.NativeMethods.CloseHandle(handle);

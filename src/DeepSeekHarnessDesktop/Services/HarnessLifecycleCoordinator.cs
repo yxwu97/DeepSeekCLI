@@ -14,6 +14,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
     private readonly ISettingsService? _settingsService;
     private readonly AppSettings _settings;
     private readonly IRecentLogBuffer? _recentLogs;
+    private readonly IDshPreparationService? _preparationService;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly object _operationSync = new();
     private readonly object _ownedProcessSync = new();
@@ -24,8 +25,6 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
     private long? _ownedProcessGeneration;
     private ProcessExitedEventArgs? _pendingProcessExit;
     private TaskCompletionSource<ProcessExitedEventArgs>? _launchExitSignal;
-    private DateTimeOffset _ownedLaunchStartedAt;
-    private bool _ownedLaunchUsesNpx;
     private bool _awaitingProcessRegistration;
     private Uri? _reportedUri;
     private int _startRequested;
@@ -39,7 +38,8 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         AppSettings settings,
         IRuntimeHealthWatcher? runtimeHealthWatcher = null,
         ISettingsService? settingsService = null,
-        IRecentLogBuffer? recentLogs = null)
+        IRecentLogBuffer? recentLogs = null,
+        IDshPreparationService? preparationService = null)
     {
         _stateMachine = stateMachine;
         _resolver = resolver;
@@ -49,6 +49,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         _runtimeHealthWatcher = runtimeHealthWatcher;
         _settingsService = settingsService;
         _recentLogs = recentLogs;
+        _preparationService = preparationService;
         _processManager.OutputReceived += OnOutputReceived;
         _processManager.ProcessExited += OnProcessExited;
     }
@@ -354,13 +355,15 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
             return false;
         }
 
+        if (_preparationService is not null)
+        {
+            return await _preparationService.RequiresPreparationAsync(_settings, token);
+        }
+
         try
         {
-            var options = await _resolver.ResolveAsync(_settings, token);
-            return string.Equals(
-                Path.GetFileName(options.ExecutablePath),
-                "npx.cmd",
-                StringComparison.OrdinalIgnoreCase);
+            _ = await _resolver.ResolveAsync(_settings, token);
+            return false;
         }
         catch (HarnessException exception) when (exception.Error.Code == "DSH-E101")
         {
@@ -383,19 +386,18 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
 
     private async Task StartOwnedAttemptAsync(long generation, CancellationToken token)
     {
+        if (_settings.Launch.Mode == LaunchMode.Auto
+            && _preparationService is not null
+            && await _preparationService.RequiresPreparationAsync(_settings, token))
+        {
+            _recentLogs?.AddDesktop("正在下载并安装锁定的 DSH 依赖图。");
+            await _preparationService.PrepareAsync(_settings, token);
+        }
         _reportedUri = null;
         var options = await _resolver.ResolveAsync(_settings, token);
         _recentLogs?.AddDesktop(
             $"启动命令：{LaunchCommandLogFormatter.Format(options)}；"
             + $"工作目录：{options.WorkingDirectory}；目标：{options.FallbackUri}；最长等待：{options.StartupTimeout.TotalMinutes:0} 分钟。");
-        lock (_ownedProcessSync)
-        {
-            _ownedLaunchStartedAt = DateTimeOffset.UtcNow;
-            _ownedLaunchUsesNpx = string.Equals(
-                Path.GetFileName(options.ExecutablePath),
-                "npx.cmd",
-                StringComparison.OrdinalIgnoreCase);
-        }
         PrepareOwnedProcessTracking(generation);
         HarnessProcessInfo process;
         try
@@ -498,7 +500,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         CancellationToken cancellationToken,
         bool cancelRuntimeWatcher = true)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed) throw new ObjectDisposedException(nameof(HarnessLifecycleCoordinator));
         lock (_operationSync)
         {
             _operationCts?.Cancel();
@@ -678,22 +680,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
 
     private HarnessError ClassifyUnexpectedExit(ProcessExitedEventArgs e)
     {
-        DateTimeOffset startedAt;
-        bool usesNpx;
-        lock (_ownedProcessSync)
-        {
-            startedAt = _ownedLaunchStartedAt;
-            usesNpx = _ownedLaunchUsesNpx;
-        }
-
-        var classified = usesNpx
-            ? NpmFailureClassifier.Classify(
-                _recentLogs?.Snapshot()
-                    .Where(line => line.Source == ProcessOutputSource.StandardError && line.Timestamp >= startedAt)
-                    .Select(line => line.Text)
-                ?? [])
-            : null;
-        return classified ?? new HarnessError(
+        return new HarnessError(
             "DSH-E201",
             "DSH 进程意外退出",
             $"Process {e.ProcessId} exited with code {e.ExitCode}.",

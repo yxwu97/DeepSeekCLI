@@ -43,8 +43,8 @@ public sealed class HarnessStateMachineTests
             (HarnessRuntimeState.Failed, HarnessStateEvent.Dismiss),
         };
 
-        var actual = Enum.GetValues<HarnessRuntimeState>()
-            .SelectMany(state => Enum.GetValues<HarnessStateEvent>(), (state, stateEvent) => (state, stateEvent))
+        var actual = ((HarnessRuntimeState[])Enum.GetValues(typeof(HarnessRuntimeState)))
+            .SelectMany(state => (HarnessStateEvent[])Enum.GetValues(typeof(HarnessStateEvent)), (state, stateEvent) => (state, stateEvent))
             .Where(pair => HarnessStateMachine.IsLegal(pair.state, pair.stateEvent))
             .ToHashSet();
 

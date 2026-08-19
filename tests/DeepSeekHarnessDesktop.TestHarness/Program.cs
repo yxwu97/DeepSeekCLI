@@ -33,8 +33,14 @@ internal static class Program
                 {
                     Console.WriteLine($"CHILD_PID={child.Id}");
                     Console.Out.Flush();
-                    await child.WaitForExitAsync();
+                    await Task.Run(() => child.WaitForExit());
                 }
+                return 0;
+            case "--spawn-and-exit":
+                var survivor = StartSelf("--child");
+                Console.WriteLine($"CHILD_PID={survivor.Id}");
+                Console.Out.Flush();
+                survivor.Dispose();
                 return 0;
             case "--child":
                 await Task.Delay(TimeSpan.FromSeconds(30));
@@ -49,17 +55,13 @@ internal static class Program
 
     private static Process StartSelf(string mode)
     {
-        var host = Environment.ProcessPath ?? throw new InvalidOperationException("Missing process host.");
+        var host = Assembly.GetExecutingAssembly().Location;
         var startInfo = new ProcessStartInfo(host)
         {
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        if (string.Equals(Path.GetFileNameWithoutExtension(host), "dotnet", StringComparison.OrdinalIgnoreCase))
-        {
-            startInfo.ArgumentList.Add(Assembly.GetExecutingAssembly().Location);
-        }
-        startInfo.ArgumentList.Add(mode);
+        startInfo.Arguments = mode;
         return Process.Start(startInfo) ?? throw new InvalidOperationException("Cannot start fixture child.");
     }
 }

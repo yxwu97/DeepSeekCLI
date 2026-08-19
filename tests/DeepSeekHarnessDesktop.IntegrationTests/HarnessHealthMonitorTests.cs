@@ -6,6 +6,14 @@ namespace DeepSeekHarnessDesktop.IntegrationTests;
 public sealed class HarnessHealthMonitorTests
 {
     [Fact]
+    public void DefaultLoopbackHandlerDoesNotUseSystemProxy()
+    {
+        using var handler = HarnessHealthMonitor.CreateLoopbackHandler();
+
+        Assert.False(handler.UseProxy);
+    }
+
+    [Fact]
     public async Task ConfirmsDshOnlyWhenBothFeaturesExist()
     {
         await using var server = new FakeHarnessServer(_ => new FakeResponse());

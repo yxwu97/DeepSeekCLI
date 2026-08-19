@@ -45,6 +45,44 @@ public sealed class FeatureViewModelTests
     }
 
     [Fact]
+    public async Task FirstPreparationRefreshesInstalledSourceForLaterStarts()
+    {
+        var coordinator = new FakeCoordinator(Stopped());
+        coordinator.OnStart = () => coordinator.Set(RunningOwned());
+        using var viewModel = CreateInstallationGuide(
+            coordinator,
+            new FakeConfirmation(true),
+            diagnosticsAfterStart: InstalledDshDiagnostics());
+
+        await viewModel.DownloadAndStartCommand.ExecuteAsync(null);
+
+        Assert.True(viewModel.HasInstalledDsh);
+        Assert.Contains("已安装", viewModel.DshStatusText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InstallationGuideKeepsBothFixedManualCommandsAndOnlyOpensTerminal()
+    {
+        var clipboard = new FakeClipboard();
+        var terminal = new FakeTerminalLauncher();
+        var settings = new AppSettings { WorkspacePath = Path.GetTempPath() };
+        using var viewModel = CreateInstallationGuide(
+            new FakeCoordinator(Stopped()),
+            new FakeConfirmation(false),
+            settings,
+            clipboard,
+            terminalLauncher: terminal);
+
+        viewModel.CopyGlobalInstallCommand.Execute(null);
+        Assert.Equal("npm install -g @deepseek-ai/dsh@0.1.0-rc.6", clipboard.Text);
+        viewModel.CopyManualStartCommand.Execute(null);
+        Assert.Equal("npx @deepseek-ai/dsh@0.1.0-rc.6 web", clipboard.Text);
+        viewModel.OpenPowerShellCommand.Execute(null);
+
+        Assert.Equal(settings.WorkspacePath, terminal.WorkingDirectory);
+    }
+
+    [Fact]
     public async Task MainStartRoutesNpxPreparationThroughInstallationGuide()
     {
         var coordinator = new FakeCoordinator(Stopped());
@@ -195,7 +233,7 @@ public sealed class FeatureViewModelTests
 
         Assert.Contains("0.1.0-rc.6", viewModel.DshStatusText, StringComparison.Ordinal);
         Assert.Contains("v24", viewModel.NodeStatusText, StringComparison.Ordinal);
-        Assert.EndsWith("/ 00:45", viewModel.ElapsedText, StringComparison.Ordinal);
+        Assert.EndsWith("/ 10:00", viewModel.ElapsedText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -237,7 +275,7 @@ public sealed class FeatureViewModelTests
 
         await viewModel.DownloadAndStartCommand.ExecuteAsync(null);
 
-        var text = string.Join('\n', logs.Snapshot().Select(line => line.Text));
+        var text = string.Join("\n", logs.Snapshot().Select(line => line.Text));
         Assert.Contains("耗时 00:07", text, StringComparison.Ordinal);
         Assert.Contains("总耗时 00:10", text, StringComparison.Ordinal);
         Assert.False(viewModel.IsBusy);
@@ -251,11 +289,13 @@ public sealed class FeatureViewModelTests
         IRecentLogBuffer? logBuffer = null,
         TimeProvider? timeProvider = null,
         DependencyDiagnosticsResult? diagnostics = null,
-        FakeLinkLauncher? linkLauncher = null)
+        FakeLinkLauncher? linkLauncher = null,
+        ITerminalLauncher? terminalLauncher = null,
+        DependencyDiagnosticsResult? diagnosticsAfterStart = null)
     {
         diagnostics ??= LaunchableDiagnostics();
         return new InstallationGuideViewModel(
-            new FakeDiagnosticsService(diagnostics),
+            new FakeDiagnosticsService(diagnosticsAfterStart ?? diagnostics),
             coordinator,
             logBuffer ?? new RecentLogBuffer(),
             linkLauncher ?? new FakeLinkLauncher(),
@@ -263,6 +303,7 @@ public sealed class FeatureViewModelTests
             diagnostics,
             settings,
             clipboard,
+            terminalLauncher,
             timeProvider);
     }
 
@@ -321,7 +362,7 @@ public sealed class FeatureViewModelTests
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         public Task RestartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         public Task ApplyServiceUriAsync(Uri serviceUri, CancellationToken cancellationToken) { ApplyCount++; return Task.CompletedTask; }
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync() => new();
 
         public void Set(HarnessStateSnapshot value)
         {

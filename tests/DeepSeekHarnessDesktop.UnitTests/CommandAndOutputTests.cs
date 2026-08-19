@@ -1,5 +1,6 @@
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services;
+using DeepSeekHarnessDesktop.Services.Abstractions;
 using DeepSeekHarnessDesktop.Utilities;
 using System.Diagnostics;
 using System.Text.Json;
@@ -17,6 +18,7 @@ public sealed class CommandAndOutputTests : IDisposable
     {
         CreateFile("dsh.cmd");
         CreateFile("node.exe");
+        CreateFile("npm.cmd");
         CreateFile("npx.cmd");
         var cacheRoot = Path.Combine(_temporaryDirectory, "cache", "_npx");
         CreateCachedDsh(cacheRoot, "valid", DshPackageMetadata.ValidatedVersion, "lib/bin.js");
@@ -31,18 +33,21 @@ public sealed class CommandAndOutputTests : IDisposable
     }
 
     [Fact]
-    public async Task ResolverUsesPinnedNpxPackageWhenGlobalDshIsMissing()
+    public async Task ResolverRequiresPreparationInsteadOfRunningDynamicNpx()
     {
         CreateFile("node.exe");
+        CreateFile("npm.cmd");
         CreateFile("npx.cmd");
         var resolver = new DshCommandResolver(
             _ => _temporaryDirectory,
             new NpxDshCacheLocator(() => Path.Combine(_temporaryDirectory, "empty-cache")));
 
-        var options = await resolver.ResolveAsync(CreateSettings(), CancellationToken.None);
+        var exception = await Assert.ThrowsAsync<HarnessException>(() => resolver.ResolveAsync(
+            CreateSettings(),
+            CancellationToken.None));
 
-        Assert.EndsWith("npx.cmd", options.ExecutablePath, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(["-y", DshPackageMetadata.ValidatedPackageSpec, "web"], options.Arguments);
+        Assert.Equal("DSH-E101", exception.Error.Code);
+        Assert.Contains("preparation", exception.Error.TechnicalMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -60,6 +65,36 @@ public sealed class CommandAndOutputTests : IDisposable
 
         Assert.Equal(node, options.ExecutablePath, ignoreCase: true);
         Assert.Equal([entryPoint, "web"], options.Arguments);
+    }
+
+    [Fact]
+    public async Task DiscoveryPrefersGlobalThenPrivateBeforeNpxCache()
+    {
+        var node = CreateFile("node.exe");
+        var global = CreateFile("dsh.cmd");
+        var privateEntry = CreateFile("private-bin.js");
+        var privateStore = new FixedPrivateStore(new DshInstallationCandidate(
+            DshInstallationSource.Private,
+            node,
+            privateEntry,
+            DshPackageMetadata.ValidatedVersion,
+            "private-test"));
+        var cacheRoot = Path.Combine(_temporaryDirectory, "priority-cache", "_npx");
+        CreateCachedDsh(cacheRoot, "valid", DshPackageMetadata.ValidatedVersion, "lib/bin.js");
+        var discovery = new DshCandidateDiscoveryService(
+            new EnvironmentPathProvider((_, _) => _temporaryDirectory),
+            privateStore,
+            new NpxDshCacheLocator(() => cacheRoot));
+
+        var first = await discovery.DiscoverAsync(CancellationToken.None);
+        var privateFindsAfterGlobal = privateStore.FindCount;
+        File.Delete(global);
+        var second = await discovery.DiscoverAsync(CancellationToken.None);
+
+        Assert.Equal(DshInstallationSource.GlobalPath, first.Candidate?.Source);
+        Assert.Equal(0, privateFindsAfterGlobal);
+        Assert.Equal(DshInstallationSource.Private, second.Candidate?.Source);
+        Assert.Equal(1, privateStore.FindCount);
     }
 
     [Fact]
@@ -97,7 +132,7 @@ public sealed class CommandAndOutputTests : IDisposable
         var directory = Path.Combine(_temporaryDirectory, "space & (中文)");
         Directory.CreateDirectory(directory);
         var script = Path.Combine(directory, "dsh.cmd");
-        await File.WriteAllTextAsync(script, "@echo CMD_BUILDER_OK\r\n");
+        File.WriteAllText(script, "@echo CMD_BUILDER_OK\r\n");
         var startInfo = CmdCommandLineBuilder.Build(script, ["web"], _temporaryDirectory, new Dictionary<string, string>());
 
         using var process = Process.Start(startInfo)!;
@@ -115,6 +150,37 @@ public sealed class CommandAndOutputTests : IDisposable
 
         Assert.Throws<ArgumentException>(() => CmdCommandLineBuilder.Build(
             script, ["web", "&", "whoami"], _temporaryDirectory, new Dictionary<string, string>()));
+    }
+
+    [Fact]
+    public void CmdBuilderRejectsFormerAutomaticNpxFallback()
+    {
+        var script = CreateFile("npx.cmd");
+
+        Assert.Throws<ArgumentException>(() => CmdCommandLineBuilder.Build(
+            script,
+            ["-y", DshPackageMetadata.ValidatedPackageSpec, "web"],
+            _temporaryDirectory,
+            new Dictionary<string, string>()));
+    }
+
+    [Fact]
+    public void NpmBuilderAllowsOnlyLockedCiCommand()
+    {
+        var script = CreateFile("npm.cmd");
+
+        var startInfo = NpmCommandLineBuilder.BuildLockedInstall(
+            script,
+            _temporaryDirectory,
+            new Dictionary<string, string>());
+
+        Assert.EndsWith("cmd.exe", startInfo.FileName, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ci --omit=dev", startInfo.Arguments, StringComparison.Ordinal);
+        Assert.Throws<ArgumentException>(() => NpmCommandLineBuilder.Build(
+            script,
+            ["install", "evil-package"],
+            _temporaryDirectory,
+            new Dictionary<string, string>()));
     }
 
     [Theory]
@@ -220,4 +286,30 @@ public sealed class CommandAndOutputTests : IDisposable
     }
 
     public void Dispose() => Directory.Delete(_temporaryDirectory, recursive: true);
+
+    private sealed class FixedPrivateStore(DshInstallationCandidate? candidate)
+        : IPrivateDshInstallationStore
+    {
+        public int FindCount { get; private set; }
+
+        public Task<DshInstallationCandidate?> FindActiveAsync(
+            string? nodePath,
+            CancellationToken cancellationToken)
+        {
+            FindCount++;
+            return Task.FromResult(candidate);
+        }
+
+        public Task<PrivateDshInstallTransaction> CreateTransactionAsync(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+        public Task<DshInstallationCandidate> CommitVersionAsync(
+            PrivateDshInstallTransaction transaction,
+            string nodePath,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task ActivateAsync(
+            DshInstallationCandidate value,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task CleanupAsync(PrivateDshInstallTransaction transaction) =>
+            throw new NotSupportedException();
+    }
 }

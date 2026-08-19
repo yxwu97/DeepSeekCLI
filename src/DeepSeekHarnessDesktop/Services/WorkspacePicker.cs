@@ -1,5 +1,5 @@
 using DeepSeekHarnessDesktop.Services.Abstractions;
-using Microsoft.Win32;
+using System.Windows.Forms;
 
 namespace DeepSeekHarnessDesktop.Services;
 
@@ -7,12 +7,12 @@ public sealed class WorkspacePicker : IWorkspacePicker
 {
     public string? Pick(string currentPath)
     {
-        var dialog = new OpenFolderDialog
+        using var dialog = new FolderBrowserDialog
         {
-            Title = "选择 DeepSeek Harness 工作目录",
-            InitialDirectory = Directory.Exists(currentPath) ? currentPath : null,
-            Multiselect = false,
+            Description = "选择 DeepSeek Harness 工作目录",
+            SelectedPath = Directory.Exists(currentPath) ? currentPath : string.Empty,
+            ShowNewFolderButton = true,
         };
-        return dialog.ShowDialog() == true ? dialog.FolderName : null;
+        return dialog.ShowDialog() == DialogResult.OK ? dialog.SelectedPath : null;
     }
 }

@@ -8,7 +8,7 @@ public sealed class PowerShellTerminalLauncher : ITerminalLauncher
 {
     public void OpenPowerShell(string workingDirectory)
     {
-        if (!Path.IsPathFullyQualified(workingDirectory) || !Directory.Exists(workingDirectory))
+        if (!PathCompatibility.IsFullyQualified(workingDirectory) || !Directory.Exists(workingDirectory))
         {
             throw Error("工作目录不存在，无法打开 PowerShell", $"Invalid terminal working directory: {workingDirectory}");
         }
@@ -25,7 +25,7 @@ public sealed class PowerShellTerminalLauncher : ITerminalLauncher
                 UseShellExecute = true,
                 WorkingDirectory = Path.GetFullPath(workingDirectory),
             };
-            startInfo.ArgumentList.Add("-NoExit");
+            startInfo.AddArgument("-NoExit");
             Process.Start(startInfo);
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)

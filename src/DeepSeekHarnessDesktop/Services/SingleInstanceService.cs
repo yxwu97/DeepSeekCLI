@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 
@@ -25,7 +26,7 @@ public sealed class SingleInstanceService : IAsyncDisposable
 
     public void StartListening(Func<Task> activateAsync)
     {
-        ArgumentNullException.ThrowIfNull(activateAsync);
+        if (activateAsync is null) throw new ArgumentNullException(nameof(activateAsync));
         if (!IsPrimary)
         {
             throw new InvalidOperationException("Only the primary instance can listen for activation.");
@@ -47,17 +48,18 @@ public sealed class SingleInstanceService : IAsyncDisposable
 
         try
         {
-            await using var client = new NamedPipeClientStream(
+            using var client = new NamedPipeClientStream(
                 ".",
                 _pipeName,
                 PipeDirection.Out,
                 PipeOptions.Asynchronous);
             await client.ConnectAsync(2000, cancellationToken);
-            await using var writer = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: false)
+            using var writer = new StreamWriter(client, new UTF8Encoding(false), 1024, leaveOpen: false)
             {
                 AutoFlush = true,
             };
-            await writer.WriteLineAsync(ActivateCommand.AsMemory(), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            await writer.WriteLineAsync(ActivateCommand);
             return true;
         }
         catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException)
@@ -72,15 +74,10 @@ public sealed class SingleInstanceService : IAsyncDisposable
         {
             try
             {
-                await using var server = new NamedPipeServerStream(
-                    _pipeName,
-                    PipeDirection.In,
-                    1,
-                    PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                using var server = CreateServerStream();
                 await server.WaitForConnectionAsync(cancellationToken);
-                using var reader = new StreamReader(server, Encoding.UTF8, leaveOpen: true);
-                var command = await reader.ReadLineAsync(cancellationToken);
+                using var reader = new StreamReader(server, Encoding.UTF8, true, 1024, leaveOpen: true);
+                var command = await reader.ReadLineAsync().WaitAsync(cancellationToken);
                 if (string.Equals(command, ActivateCommand, StringComparison.Ordinal))
                 {
                     await activateAsync();
@@ -99,6 +96,26 @@ public sealed class SingleInstanceService : IAsyncDisposable
 
     private static string GetCurrentUserIdentifier() =>
         WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName;
+
+    private NamedPipeServerStream CreateServerStream()
+    {
+        var user = WindowsIdentity.GetCurrent().User
+            ?? throw new InvalidOperationException("The current Windows user SID is unavailable.");
+        var security = new PipeSecurity();
+        security.AddAccessRule(new PipeAccessRule(
+            user,
+            PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
+            AccessControlType.Allow));
+        return new NamedPipeServerStream(
+            _pipeName,
+            PipeDirection.In,
+            1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous,
+            0,
+            0,
+            security);
+    }
 
     public async ValueTask DisposeAsync()
     {

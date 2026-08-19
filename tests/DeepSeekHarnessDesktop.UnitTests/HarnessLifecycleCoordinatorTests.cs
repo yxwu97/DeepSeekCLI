@@ -131,7 +131,7 @@ public sealed class HarnessLifecycleCoordinatorTests
     }
 
     [Fact]
-    public async Task AutomaticInitializationWaitsForUserWhenNpxDownloadIsRequired()
+    public async Task AutomaticInitializationWaitsForUserWhenPrivatePreparationIsRequired()
     {
         var process = new FakeProcessManager();
         var health = new FakeHealthMonitor();
@@ -139,15 +139,82 @@ public sealed class HarnessLifecycleCoordinatorTests
         var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = true };
         var coordinator = new HarnessLifecycleCoordinator(
             new HarnessStateMachine(),
-            new FakeResolver(settings, "npx.cmd"),
+            new FakeResolver(settings),
             process,
             health,
-            settings);
+            settings,
+            preparationService: new FakePreparationService());
 
         await coordinator.InitializeAsync(CancellationToken.None);
 
         Assert.Equal(HarnessRuntimeState.Stopped, coordinator.Current.State);
         Assert.Contains("确认", coordinator.Current.StatusMessage, StringComparison.Ordinal);
+        Assert.Equal(0, process.StartCount);
+        await coordinator.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task CustomModeBypassesAutomaticPreparationCompletely()
+    {
+        var process = new FakeProcessManager();
+        var health = new FakeHealthMonitor();
+        health.EnqueueProbe(HealthProbeStatus.Unreachable);
+        var settings = new AppSettings
+        {
+            WorkspacePath = Path.GetTempPath(),
+            AutoStart = true,
+            Launch = new LaunchSettings
+            {
+                Mode = LaunchMode.Custom,
+                ExecutablePath = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            },
+        };
+        var preparation = new FakePreparationService();
+        var coordinator = new HarnessLifecycleCoordinator(
+            new HarnessStateMachine(),
+            new FakeResolver(settings),
+            process,
+            health,
+            settings,
+            preparationService: preparation);
+
+        await coordinator.InitializeAsync(CancellationToken.None);
+
+        Assert.Equal(0, preparation.RequiresCount);
+        Assert.Equal(0, preparation.PrepareCount);
+        Assert.Equal(1, process.StartCount);
+        Assert.Equal(HarnessRuntimeState.RunningOwned, coordinator.Current.State);
+        await coordinator.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task PreparationTimeoutUsesE221AndNeverStartsDshProcess()
+    {
+        var process = new FakeProcessManager();
+        var health = new FakeHealthMonitor();
+        var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = false };
+        var preparation = new FakePreparationService
+        {
+            Error = new HarnessError(
+                "DSH-E221",
+                "DSH 下载或安装超时",
+                "Controlled preparation timeout.",
+                true),
+        };
+        var coordinator = new HarnessLifecycleCoordinator(
+            new HarnessStateMachine(),
+            new FakeResolver(settings),
+            process,
+            health,
+            settings,
+            preparationService: preparation);
+        await coordinator.InitializeAsync(CancellationToken.None);
+        health.EnqueueProbe(HealthProbeStatus.Unreachable);
+
+        await coordinator.StartAsync(CancellationToken.None);
+
+        Assert.Equal(HarnessRuntimeState.Failed, coordinator.Current.State);
+        Assert.Equal("DSH-E221", coordinator.Current.Error?.Code);
         Assert.Equal(0, process.StartCount);
         await coordinator.DisposeAsync();
     }
@@ -470,7 +537,32 @@ public sealed class HarnessLifecycleCoordinatorTests
             return Task.CompletedTask;
         }
 
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync() => new();
+    }
+
+    private sealed class FakePreparationService : IDshPreparationService
+    {
+        public HarnessError? Error { get; init; }
+        public int RequiresCount { get; private set; }
+        public int PrepareCount { get; private set; }
+
+        public Task<bool> RequiresPreparationAsync(
+            AppSettings settings,
+            CancellationToken cancellationToken)
+        {
+            RequiresCount++;
+            return Task.FromResult(true);
+        }
+
+        public Task PrepareAsync(AppSettings settings, CancellationToken cancellationToken)
+        {
+            PrepareCount++;
+            if (Error is not null)
+            {
+                throw new HarnessException(Error);
+            }
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeHealthMonitor : IHarnessHealthMonitor

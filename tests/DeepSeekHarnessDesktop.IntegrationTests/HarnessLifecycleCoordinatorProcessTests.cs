@@ -61,7 +61,7 @@ public sealed class HarnessLifecycleCoordinatorProcessTests
         {
             const string prefix = "CHILD_PID=";
             if (line.Text.StartsWith(prefix, StringComparison.Ordinal)
-                && int.TryParse(line.Text[prefix.Length..], out var pid))
+                && int.TryParse(line.Text.Substring(prefix.Length), out var pid))
             {
                 childPid.TrySetResult(pid);
             }
@@ -112,8 +112,8 @@ public sealed class HarnessLifecycleCoordinatorProcessTests
         };
         var options = new DshLaunchOptions
         {
-            ExecutablePath = DotnetPath(),
-            Arguments = [typeof(HarnessMarker).Assembly.Location, mode],
+            ExecutablePath = typeof(HarnessMarker).Assembly.Location,
+            Arguments = [mode],
             WorkingDirectory = settings.WorkspacePath,
             FallbackUri = settings.ServiceUri,
             StartupTimeout = startupTimeout ?? TimeSpan.FromSeconds(5),
@@ -127,9 +127,6 @@ public sealed class HarnessLifecycleCoordinatorProcessTests
         await coordinator.InitializeAsync(CancellationToken.None);
         return coordinator;
     }
-
-    private static string DotnetPath() =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "dotnet.exe");
 
     private static async Task WaitUntilAsync(Func<bool> predicate, TimeSpan timeout)
     {

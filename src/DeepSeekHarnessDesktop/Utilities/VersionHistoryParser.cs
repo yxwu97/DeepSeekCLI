@@ -3,11 +3,15 @@ using System.Text.RegularExpressions;
 
 namespace DeepSeekHarnessDesktop.Utilities;
 
-public static partial class VersionHistoryParser
+public static class VersionHistoryParser
 {
+    private static readonly Regex VersionHeadingPattern = new(
+        @"^## \[(?<version>\d+\.\d+\.\d+)\] - (?<date>\d{4}-\d{2}-\d{2})$",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     public static IReadOnlyList<VersionHistoryEntry> Parse(string markdown)
     {
-        ArgumentNullException.ThrowIfNull(markdown);
+        if (markdown is null) throw new ArgumentNullException(nameof(markdown));
         var entries = new List<VersionHistoryEntry>();
         var changes = new List<string>();
         string? version = null;
@@ -17,7 +21,7 @@ public static partial class VersionHistoryParser
         using var reader = new StringReader(markdown);
         while (reader.ReadLine() is { } line)
         {
-            var heading = VersionHeadingRegex().Match(line);
+            var heading = VersionHeadingPattern.Match(line);
             if (heading.Success)
             {
                 AddEntry(entries, version, date, changes);
@@ -36,7 +40,7 @@ public static partial class VersionHistoryParser
 
             if (readingChanges && line.StartsWith("- ", StringComparison.Ordinal))
             {
-                changes.Add(line[2..].Trim());
+                changes.Add(line.Substring(2).Trim());
             }
         }
 
@@ -56,6 +60,4 @@ public static partial class VersionHistoryParser
         }
     }
 
-    [GeneratedRegex(@"^## \[(?<version>\d+\.\d+\.\d+)\] - (?<date>\d{4}-\d{2}-\d{2})$", RegexOptions.CultureInvariant)]
-    private static partial Regex VersionHeadingRegex();
 }

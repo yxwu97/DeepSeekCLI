@@ -15,7 +15,7 @@ public sealed class DshReleaseService : IDshReleaseService, IDisposable
     private readonly bool _ownsClient;
 
     public DshReleaseService()
-        : this(new HttpClient(new SocketsHttpHandler
+        : this(new HttpClient(new HttpClientHandler
         {
             AllowAutoRedirect = false,
             UseCookies = false,
@@ -79,18 +79,19 @@ public sealed class DshReleaseService : IDshReleaseService, IDisposable
 
     private static async Task<byte[]> ReadBoundedAsync(HttpContent content, CancellationToken cancellationToken)
     {
-        await using var stream = await content.ReadAsStreamAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        using var stream = await content.ReadAsStreamAsync();
         using var memory = new MemoryStream(MaximumResponseBytes + 1);
         var buffer = new byte[8192];
         while (memory.Length <= MaximumResponseBytes)
         {
-            var read = await stream.ReadAsync(buffer, cancellationToken);
+            var read = await stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
             if (read == 0)
             {
                 return memory.ToArray();
             }
 
-            await memory.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+            await memory.WriteAsync(buffer, 0, read, cancellationToken);
         }
 
         throw new InvalidDataException("npm 响应超过 64 KiB 限制。");

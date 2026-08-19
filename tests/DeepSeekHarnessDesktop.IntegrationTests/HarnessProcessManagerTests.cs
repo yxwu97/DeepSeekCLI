@@ -39,7 +39,7 @@ public sealed class HarnessProcessManagerTests
         {
             const string prefix = "CHILD_PID=";
             if (args.Line.Text.StartsWith(prefix, StringComparison.Ordinal)
-                && int.TryParse(args.Line.Text[prefix.Length..], out var pid))
+                && int.TryParse(args.Line.Text.Substring(prefix.Length), out var pid))
             {
                 childPid.TrySetResult(pid);
             }
@@ -82,7 +82,6 @@ public sealed class HarnessProcessManagerTests
         {
             Arguments =
             [
-                typeof(HarnessMarker).Assembly.Location,
                 "--echo-args",
                 "space value",
                 "quote\"value",
@@ -98,51 +97,39 @@ public sealed class HarnessProcessManagerTests
     }
 
     [Fact]
-    public async Task SuspendedLauncherExecutesValidatedNpxCmdAndReapsProcess()
+    public async Task StalledNpmInstallReturnsE221AndReapsProcessTree()
     {
         var directory = Path.Combine(Path.GetTempPath(), "DSH-IntegrationTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
-            var script = Path.Combine(directory, "npx.cmd");
-            await File.WriteAllTextAsync(script, """
-                @echo off
-                if not "%~1"=="-y" exit /b 41
-                if not "%~2"=="@deepseek-ai/dsh@0.1.0-rc.6" exit /b 42
-                if not "%~3"=="web" exit /b 43
-                if not "%~4"=="" exit /b 44
-                echo NPX_CMD_OK
-                exit /b 0
-                """);
-
-            await using var manager = new HarnessProcessManager();
-            var output = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var exited = new TaskCompletionSource<ProcessExitedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
-            manager.OutputReceived += (_, args) =>
+            var script = Path.Combine(directory, "npm.cmd");
+            File.WriteAllText(script, $"@echo off\r\n\"{typeof(HarnessMarker).Assembly.Location}\" --tree\r\n");
+            var logs = new RecentLogBuffer();
+            var childPid = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            logs.LineAdded += (_, line) =>
             {
-                if (args.Line.Text == "NPX_CMD_OK")
+                const string prefix = "CHILD_PID=";
+                if (line.Text.StartsWith(prefix, StringComparison.Ordinal)
+                    && int.TryParse(line.Text.Substring(prefix.Length), out var pid))
                 {
-                    output.TrySetResult(args.Line.Text);
+                    childPid.TrySetResult(pid);
                 }
             };
-            manager.ProcessExited += (_, args) => exited.TrySetResult(args);
-            var options = new DshLaunchOptions
-            {
-                ExecutablePath = script,
-                Arguments = ["-y", DshPackageMetadata.ValidatedPackageSpec, "web"],
-                WorkingDirectory = directory,
-                FallbackUri = new Uri("http://127.0.0.1:43123/"),
-            };
+            var runner = new NpmInstallRunner(
+                logs,
+                preparationTimeout: TimeSpan.FromMilliseconds(100),
+                noProgressTimeout: TimeSpan.FromMilliseconds(100));
 
-            var info = await manager.StartAsync(options, CancellationToken.None);
-            Assert.Equal("NPX_CMD_OK", await output.Task.WaitAsync(TimeSpan.FromSeconds(5)));
-            var result = await exited.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var run = Assert.ThrowsAsync<HarnessException>(() => runner.RunAsync(
+                script,
+                directory,
+                CancellationToken.None));
+            var pid = await childPid.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var exception = await run.WaitAsync(TimeSpan.FromSeconds(8));
 
-            Assert.Equal(info.ProcessId, result.ProcessId);
-            Assert.Equal(0, result.ExitCode);
-            Assert.False(manager.IsRunning);
-            Assert.Null(manager.Current);
-            await AssertProcessExitedAsync(info.ProcessId);
+            Assert.Equal("DSH-E221", exception.Error.Code);
+            await AssertProcessExitedAsync(pid);
         }
         finally
         {
@@ -150,13 +137,79 @@ public sealed class HarnessProcessManagerTests
         }
     }
 
+    [Fact]
+    public async Task NpmExitWithInheritedOutputPipeFailsWithinDeadlineAndReapsDescendant()
+    {
+        var fixture = CreateNpmFixture("--spawn-and-exit");
+        try
+        {
+            var runner = new NpmInstallRunner(
+                fixture.Logs,
+                outputDrainTimeout: TimeSpan.FromMilliseconds(200));
+            var run = Assert.ThrowsAsync<HarnessException>(() => runner.RunAsync(
+                fixture.ScriptPath,
+                fixture.Root,
+                CancellationToken.None));
+            var pid = await fixture.ChildPid.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var exception = await run.WaitAsync(TimeSpan.FromSeconds(8));
+
+            Assert.Equal("DSH-E201", exception.Error.Code);
+            await AssertProcessExitedAsync(pid);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CancellingNpmInstallReapsProcessTree()
+    {
+        var fixture = CreateNpmFixture("--tree");
+        try
+        {
+            using var cancellation = new CancellationTokenSource();
+            var runner = new NpmInstallRunner(fixture.Logs);
+            var run = runner.RunAsync(fixture.ScriptPath, fixture.Root, cancellation.Token);
+            var pid = await fixture.ChildPid.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => run.WaitAsync(TimeSpan.FromSeconds(8)));
+            await AssertProcessExitedAsync(pid);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Root, recursive: true);
+        }
+    }
+
+    private static NpmFixture CreateNpmFixture(string mode)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "DSH-IntegrationTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var script = Path.Combine(root, "npm.cmd");
+        File.WriteAllText(script, $"@echo off\r\n\"{typeof(HarnessMarker).Assembly.Location}\" {mode}\r\n");
+        var logs = new RecentLogBuffer();
+        var childPid = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        logs.LineAdded += (_, line) =>
+        {
+            const string prefix = "CHILD_PID=";
+            if (line.Text.StartsWith(prefix, StringComparison.Ordinal)
+                && int.TryParse(line.Text.Substring(prefix.Length), out var pid))
+            {
+                childPid.TrySetResult(pid);
+            }
+        };
+        return new NpmFixture(root, script, logs, childPid);
+    }
+
     private static DshLaunchOptions CreateOptions(string mode)
     {
-        var dotnet = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "dotnet.exe");
         return new DshLaunchOptions
         {
-            ExecutablePath = dotnet,
-            Arguments = [typeof(HarnessMarker).Assembly.Location, mode],
+            ExecutablePath = typeof(HarnessMarker).Assembly.Location,
+            Arguments = [mode],
             WorkingDirectory = Path.GetTempPath(),
             FallbackUri = new Uri("http://127.0.0.1:43123/"),
         };
@@ -183,4 +236,10 @@ public sealed class HarnessProcessManagerTests
 
         Assert.Fail($"Descendant process {processId} is still running.");
     }
+
+    private sealed record NpmFixture(
+        string Root,
+        string ScriptPath,
+        RecentLogBuffer Logs,
+        TaskCompletionSource<int> ChildPid);
 }

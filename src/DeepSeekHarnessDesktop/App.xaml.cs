@@ -65,14 +65,24 @@ public partial class App : System.Windows.Application
             _settings = new Models.AppSettings();
         }
         var cacheLocator = new NpxDshCacheLocator();
-        var diagnosticsService = new DependencyDiagnosticsService(cacheLocator: cacheLocator);
+        var pathProvider = new EnvironmentPathProvider();
+        var privateStore = new PrivateDshInstallationStore();
+        var discoveryService = new DshCandidateDiscoveryService(
+            pathProvider,
+            privateStore,
+            cacheLocator);
+        var diagnosticsService = new DependencyDiagnosticsService(discovery: discoveryService);
         var diagnostics = CreateInitialDiagnostics();
         _services = new ServiceCollection()
             .AddSingleton(_settings)
             .AddSingleton(redactor)
             .AddSingleton(diagnostics)
             .AddSingleton<IDependencyDiagnosticsService>(diagnosticsService)
+            .AddSingleton(pathProvider)
             .AddSingleton(cacheLocator)
+            .AddSingleton(privateStore)
+            .AddSingleton<IPrivateDshInstallationStore>(privateStore)
+            .AddSingleton<IDshCandidateDiscoveryService>(discoveryService)
             .AddSingleton(_settingsService)
             .AddSingleton(new HttpClient { Timeout = TimeSpan.FromSeconds(15) })
             .AddSingleton<IDeepSeekApiKeyProvider, DeepSeekApiKeyProvider>()
@@ -90,9 +100,11 @@ public partial class App : System.Windows.Application
             .AddSingleton(_logService.CreateLogger<RecentLogBuffer>())
             .AddSingleton<IRecentLogBuffer, RecentLogBuffer>()
             .AddSingleton<IWorkspacePicker, WorkspacePicker>()
-            .AddSingleton<IDshCommandResolver>(_ => new DshCommandResolver(cacheLocator: cacheLocator))
+            .AddSingleton<IDshCommandResolver>(_ => new DshCommandResolver(discovery: discoveryService))
             .AddSingleton<IHarnessProcessManager, HarnessProcessManager>()
             .AddSingleton<IHarnessHealthMonitor, HarnessHealthMonitor>()
+            .AddSingleton<INpmInstallRunner, NpmInstallRunner>()
+            .AddSingleton<IDshPreparationService, DshPreparationService>()
             .AddSingleton<IRuntimeHealthWatcher, RuntimeHealthWatcher>()
             .AddSingleton<IWebViewEnvironmentProvider, WebViewEnvironmentProvider>()
             .AddSingleton<CodeWebViewService>()

@@ -31,7 +31,7 @@ public sealed class SettingsService : ISettingsService, IDisposable
 
     public SettingsService(string settingsDirectory, ILogger<SettingsService>? logger = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(settingsDirectory);
+        if (string.IsNullOrWhiteSpace(settingsDirectory)) throw new ArgumentException("Settings directory is required.", nameof(settingsDirectory));
         var directory = Path.GetFullPath(settingsDirectory);
         _settingsPath = Path.Combine(directory, SettingsFileName);
         _backupPath = _settingsPath + ".bak";
@@ -66,7 +66,7 @@ public sealed class SettingsService : ISettingsService, IDisposable
                 {
                     var recovered = await ReadAndValidateAsync(_backupPath, cancellationToken);
                     await WriteFileAsync(_temporaryPath, recovered, cancellationToken);
-                    File.Move(_temporaryPath, _settingsPath, true);
+                    File.Replace(_temporaryPath, _settingsPath, null, true);
                     _logger?.LogWarning(1102, "Recovered settings from backup.");
                     return recovered;
                 }
@@ -86,7 +86,7 @@ public sealed class SettingsService : ISettingsService, IDisposable
 
     public async Task SaveAsync(AppSettings settings, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(settings);
+        if (settings is null) throw new ArgumentNullException(nameof(settings));
         Validate(settings);
 
         await _gate.WaitAsync(cancellationToken);
@@ -133,7 +133,7 @@ public sealed class SettingsService : ISettingsService, IDisposable
         {
             throw new InvalidDataException($"Unsupported settings schema version: {settings.SchemaVersion}.");
         }
-        if (string.IsNullOrWhiteSpace(settings.WorkspacePath) || !Path.IsPathFullyQualified(settings.WorkspacePath))
+        if (string.IsNullOrWhiteSpace(settings.WorkspacePath) || !PathCompatibility.IsFullyQualified(settings.WorkspacePath))
         {
             throw new InvalidDataException("Workspace path must be absolute.");
         }
@@ -154,7 +154,7 @@ public sealed class SettingsService : ISettingsService, IDisposable
         {
             throw new InvalidDataException("WebView zoom factor must be between 0.5 and 2.0.");
         }
-        if (!Enum.IsDefined(settings.Launch.Mode))
+        if (!Enum.IsDefined(typeof(LaunchMode), settings.Launch.Mode))
         {
             throw new InvalidDataException("Launch mode is invalid.");
         }
@@ -162,7 +162,7 @@ public sealed class SettingsService : ISettingsService, IDisposable
 
     private async Task<AppSettings> ReadAndValidateAsync(string path, CancellationToken cancellationToken)
     {
-        await using var stream = new FileStream(
+        using var stream = new FileStream(
             path,
             FileMode.Open,
             FileAccess.Read,
@@ -205,7 +205,7 @@ public sealed class SettingsService : ISettingsService, IDisposable
 
     private async Task WriteFileAsync(string path, AppSettings settings, CancellationToken cancellationToken)
     {
-        await using var stream = new FileStream(
+        using var stream = new FileStream(
             path,
             FileMode.Create,
             FileAccess.Write,

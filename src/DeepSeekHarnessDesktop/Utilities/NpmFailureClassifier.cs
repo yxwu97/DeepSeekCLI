@@ -6,7 +6,7 @@ public static class NpmFailureClassifier
 {
     public static HarnessError? Classify(IEnumerable<string> standardError)
     {
-        var text = string.Join('\n', standardError);
+        var text = string.Join("\n", standardError);
         if (text.Length == 0)
         {
             return null;

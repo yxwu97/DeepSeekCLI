@@ -16,6 +16,14 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Contains("--private-dsh-smoke", StringComparer.OrdinalIgnoreCase))
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            var exitCode = await Phase0Runner.RunPrivateDshSmokeAsync();
+            Shutdown(exitCode);
+            return;
+        }
+
         if (e.Args.Contains("--chat-webview-smoke", StringComparer.OrdinalIgnoreCase))
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;

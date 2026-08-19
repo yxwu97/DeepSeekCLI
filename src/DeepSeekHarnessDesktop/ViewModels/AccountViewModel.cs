@@ -60,7 +60,7 @@ public sealed partial class AccountViewModel : ObservableObject
         try
         {
             _apiKey = !string.IsNullOrWhiteSpace(candidateApiKey)
-                ? candidateApiKey.Trim()
+                ? candidateApiKey!.Trim()
                 : await _apiKeyProvider.GetCurrentAsync(cancellationToken);
             OnPropertyChanged(nameof(HasApiKey));
             OnPropertyChanged(nameof(MaskedApiKey));
@@ -129,5 +129,5 @@ public sealed partial class AccountViewModel : ObservableObject
 
     private static string MaskApiKey(string apiKey) => apiKey.Length <= 4
         ? new string('*', apiKey.Length)
-        : $"****{apiKey[^4..]}";
+        : $"****{apiKey.Substring(apiKey.Length - 4)}";
 }

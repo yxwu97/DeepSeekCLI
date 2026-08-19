@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace DeepSeekHarnessDesktop.Utilities;
 
-public static partial class OutputLineProcessor
+public static class OutputLineProcessor
 {
     public const int MaximumLineLength = 16 * 1024;
     public const string TruncationMarker = " [truncated]";
@@ -14,18 +14,19 @@ public static partial class OutputLineProcessor
             return null;
         }
 
-        var cleaned = OscRegex().Replace(CsiRegex().Replace(line, string.Empty), string.Empty).Trim();
+        var cleaned = OscPattern.Replace(CsiPattern.Replace(line, string.Empty), string.Empty).Trim();
         if (cleaned.Length <= MaximumLineLength)
         {
             return cleaned;
         }
 
-        return string.Concat(cleaned.AsSpan(0, MaximumLineLength - TruncationMarker.Length), TruncationMarker);
+        return cleaned.Substring(0, MaximumLineLength - TruncationMarker.Length) + TruncationMarker;
     }
 
-    [GeneratedRegex(@"\x1B\[[0-?]*[ -/]*[@-~]", RegexOptions.CultureInvariant)]
-    private static partial Regex CsiRegex();
-
-    [GeneratedRegex(@"\x1B\](?:[^\x07\x1B]|\x1B(?!\\))*(?:\x07|\x1B\\)", RegexOptions.CultureInvariant)]
-    private static partial Regex OscRegex();
+    private static readonly Regex CsiPattern = new(
+        @"\x1B\[[0-?]*[ -/]*[@-~]",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex OscPattern = new(
+        @"\x1B\](?:[^\x07\x1B]|\x1B(?!\\))*(?:\x07|\x1B\\)",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
 }

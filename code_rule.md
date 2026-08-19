@@ -26,7 +26,7 @@
 - 外部 I/O 能力先定义在 `Services/Abstractions/`，便于 ViewModel 和协调器测试；纯内部辅助类不强制增加空接口。
 - `HarnessLifecycleCoordinator` 只负责编排生命周期；`HarnessStateMachine` 只决定合法状态迁移；`HarnessProcessManager` 只管理当前 Owned 进程；不要把这些职责重新混合。
 - 新服务统一在 `App.xaml.cs` 注册，并明确 Singleton/Transient 生命周期。持有状态、事件或系统句柄的 Singleton 必须可释放。
-- HTTP 响应、请求、流、进程和原生句柄使用 `using` / `await using` / SafeHandle 管理。
+- HTTP 响应、请求、流、进程和原生句柄使用目标框架支持的 `using` / `IAsyncDisposable` / SafeHandle 管理。
 
 ### ViewModels 与 Views
 
@@ -51,13 +51,14 @@
 ## 4. DSH 进程与命令安全
 
 - 启动前验证工作目录和可执行文件。路径与参数使用结构化字段，不接受一整段可执行 Shell 文本。
-- 原生 `.exe/.com` 参数使用 `ProcessStartInfo.ArgumentList`；受控 `.cmd` 入口只通过 `CmdCommandLineBuilder` 生成 `cmd.exe /d /v:off /s /c` 命令。
+- 原生 `.exe/.com` 参数逐项经过 net48 兼容层的 Windows 参数转义；受控 `.cmd` 入口只通过 `CmdCommandLineBuilder` 生成 `cmd.exe /d /v:off /s /c` 命令。
 - 扩展允许的字符或参数前，必须补充空格、引号、`& | < > ^ % ! ( )` 和中文路径测试，证明不存在命令注入或转义回归。
 - Owned 进程启动后立即加入 Job Object 并异步读取 stdout/stderr；必须处理“启动后立即退出”和“订阅前退出”的竞态。
 - 停止操作针对已跟踪的 Owned 进程树，带有限超时并确保最终释放；不得扫描端口后结束不明 PID。
-- Auto 启动只允许 PATH 中的 `dsh.cmd`，或 PATH 中 `npx.cmd` 加代码内固定的精确 DSH 包版本、`web` 和可选纯数字端口；不得接受用户包名、任意 Shell 文本或额外 npm 参数。
-- 不扫描或依赖 npm `_npx` 缓存内部结构，不自动全局安装 Node.js/DSH。包名或版本变化时同步解析器、首次无缓存下载、npm 错误分类、文档和版本记录。
-- framework-dependent 发布包不得夹带 .NET、Node、npm、npx、DSH 缓存或用户数据；发布门禁必须限制 ZIP 和主 EXE 体积。
+- Auto 启动依次允许 PATH 中的 `dsh.cmd`、Desktop 已激活私有安装和标准 `_npx` 根中经固定包名/版本/bin/入口校验的 DSH；命中后不得运行 npm/npx 或访问 registry。
+- 全部候选缺失时，仅在用户确认后用发布包内精确 package/lockfile 执行受控 `npm ci --omit=dev` 到当前用户私有 staging；真实 DSH smoke 通过后才原子激活。生产 builder 不保留动态 npx 回退，不接受用户包名、任意 Shell 文本或额外 npm 参数。
+- 缓存发现只枚举标准 `_npx` 根的直接子目录并限制候选数量，不硬编码 cache id，不执行 manifest 指定的任意入口。包名或版本变化时同步解析器、锁定资源、npm 错误分类、文档和版本记录。
+- net48 发布包不得夹带 CoreCLR、Node、npm、npx、DSH 缓存或用户数据；发布门禁必须限制 ZIP 和主 EXE 体积。
 
 ## 5. 健康检查与导航安全
 

@@ -28,7 +28,7 @@ internal sealed class FakeHarnessServer : IAsyncDisposable
         {
             while (!_cts.IsCancellationRequested)
             {
-                var client = await _listener.AcceptTcpClientAsync(_cts.Token);
+                var client = await _listener.AcceptTcpClientAsync().WaitAsync(_cts.Token);
                 _ = RespondAsync(client);
             }
         }
@@ -43,11 +43,11 @@ internal sealed class FakeHarnessServer : IAsyncDisposable
         {
             try
             {
-                await using var stream = client.GetStream();
-                using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
-                var requestLine = await reader.ReadLineAsync(_cts.Token);
-                var path = requestLine?.Split(' ', StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(1) ?? "/";
-                while (!string.IsNullOrEmpty(await reader.ReadLineAsync(_cts.Token)))
+                using var stream = client.GetStream();
+                using var reader = new StreamReader(stream, Encoding.ASCII, true, 1024, leaveOpen: true);
+                var requestLine = await reader.ReadLineAsync().WaitAsync(_cts.Token);
+                var path = requestLine?.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(1) ?? "/";
+                while (!string.IsNullOrEmpty(await reader.ReadLineAsync().WaitAsync(_cts.Token)))
                 {
                 }
 
@@ -68,8 +68,8 @@ internal sealed class FakeHarnessServer : IAsyncDisposable
                 }
                 headers.Append("\r\n");
                 var headerBytes = Encoding.ASCII.GetBytes(headers.ToString());
-                await stream.WriteAsync(headerBytes, _cts.Token);
-                await stream.WriteAsync(body, _cts.Token);
+                await stream.WriteAsync(headerBytes, 0, headerBytes.Length, _cts.Token);
+                await stream.WriteAsync(body, 0, body.Length, _cts.Token);
             }
             catch (Exception exception) when (exception is OperationCanceledException or IOException or SocketException)
             {

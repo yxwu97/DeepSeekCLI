@@ -8,7 +8,7 @@ public static class LaunchCommandLogFormatter
     {
         var executableName = Path.GetFileName(options.ExecutablePath);
         return string.Equals(Path.GetExtension(executableName), ".cmd", StringComparison.OrdinalIgnoreCase)
-            ? $"{executableName} {string.Join(' ', options.Arguments)}"
+            ? $"{executableName} {string.Join(" ", options.Arguments)}"
             : $"{executableName} <arguments omitted>";
     }
 }

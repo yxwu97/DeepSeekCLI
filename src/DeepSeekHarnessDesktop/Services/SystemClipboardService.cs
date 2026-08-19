@@ -9,7 +9,7 @@ public sealed class SystemClipboardService : IClipboardService
 {
     public void SetText(string text)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("Clipboard text is required.", nameof(text));
         try
         {
             Clipboard.SetText(text, TextDataFormat.UnicodeText);

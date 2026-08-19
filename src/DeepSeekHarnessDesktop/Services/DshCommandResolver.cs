@@ -8,17 +8,19 @@ namespace DeepSeekHarnessDesktop.Services;
 
 public sealed class DshCommandResolver : IDshCommandResolver
 {
-    private readonly EnvironmentPathProvider _pathProvider;
-    private readonly NpxDshCacheLocator _cacheLocator;
+    private readonly IDshCandidateDiscoveryService _discovery;
 
     public DshCommandResolver(
         Func<string, string?>? getEnvironmentVariable = null,
-        NpxDshCacheLocator? cacheLocator = null)
+        NpxDshCacheLocator? cacheLocator = null,
+        IDshCandidateDiscoveryService? discovery = null)
     {
-        _pathProvider = getEnvironmentVariable is null
+        var pathProvider = getEnvironmentVariable is null
             ? new EnvironmentPathProvider()
             : new EnvironmentPathProvider((name, _) => getEnvironmentVariable(name));
-        _cacheLocator = cacheLocator ?? new NpxDshCacheLocator();
+        _discovery = discovery ?? new DshCandidateDiscoveryService(
+            pathProvider,
+            cacheLocator: cacheLocator);
     }
 
     public async Task<DshLaunchOptions> ResolveAsync(AppSettings settings, CancellationToken cancellationToken)
@@ -26,36 +28,37 @@ public sealed class DshCommandResolver : IDshCommandResolver
         cancellationToken.ThrowIfCancellationRequested();
         ValidateWorkspace(settings.WorkspacePath);
 
-        var customExecutable = settings.Launch.Mode == LaunchMode.Custom
-            ? ResolveCustom(settings.Launch.ExecutablePath)
-            : null;
-        var globalDsh = settings.Launch.Mode == LaunchMode.Auto ? FindOnPath("dsh.cmd") : null;
-        var node = globalDsh is null && settings.Launch.Mode == LaunchMode.Auto ? FindOnPath("node.exe") : null;
-        var cachedDsh = globalDsh is null
-            ? await _cacheLocator.FindAsync(node, cancellationToken)
-            : null;
-        var npx = globalDsh is null && cachedDsh is null && settings.Launch.Mode == LaunchMode.Auto
-            ? FindOnPath("npx.cmd")
-            : null;
-        var executable = customExecutable ?? globalDsh ?? cachedDsh?.NodePath ?? npx;
-        if (executable is null)
+        if (settings.Launch.Mode == LaunchMode.Custom)
         {
-            throw Error(
-                "DSH-E101",
-                "未找到 dsh 或 npx，请先安装 Node.js",
-                "Neither dsh.cmd nor npx.cmd was found on PATH.",
-                false);
+            return CreateOptions(
+                ResolveCustom(settings.Launch.ExecutablePath),
+                settings.Launch.Arguments,
+                settings);
         }
 
-        IReadOnlyList<string> arguments = customExecutable is not null
-            ? settings.Launch.Arguments
-            : globalDsh is not null
-                ? BuildDshArguments(settings.ServiceUri)
-                : cachedDsh is not null
-                    ? BuildCachedDshArguments(cachedDsh.EntryPointPath, settings.ServiceUri)
-                    : BuildNpxArguments(settings.ServiceUri);
+        var discovery = await _discovery.DiscoverAsync(cancellationToken);
+        var candidate = discovery.Candidate;
+        if (candidate is null)
+        {
+            var message = discovery.CanPrepare
+                ? "No reusable DSH candidate was found; locked preparation is required."
+                : "No reusable DSH candidate was found and Node.js/npm are unavailable.";
+            throw Error("DSH-E101", "尚未安装可用的 DSH", message, true);
+        }
 
-        return new DshLaunchOptions
+        var arguments = candidate.Source == DshInstallationSource.GlobalPath
+            ? BuildDshArguments(settings.ServiceUri)
+            : BuildCachedDshArguments(
+                candidate.EntryPointPath
+                    ?? throw new InvalidOperationException("A Node-based DSH candidate requires an entry point."),
+                settings.ServiceUri);
+        return CreateOptions(candidate.ExecutablePath, arguments, settings);
+    }
+
+    private static DshLaunchOptions CreateOptions(
+        string executable,
+        IReadOnlyList<string> arguments,
+        AppSettings settings) => new()
         {
             ExecutablePath = executable,
             Arguments = arguments,
@@ -68,18 +71,10 @@ public sealed class DshCommandResolver : IDshCommandResolver
                 ["DSH_DESKTOP_VERSION"] = GetDesktopVersion(),
             },
         };
-    }
 
     private static IReadOnlyList<string> BuildDshArguments(Uri serviceUri)
     {
         var arguments = new List<string> { "web" };
-        AppendPortIfNeeded(arguments, serviceUri);
-        return arguments;
-    }
-
-    private static IReadOnlyList<string> BuildNpxArguments(Uri serviceUri)
-    {
-        var arguments = new List<string> { "-y", DshPackageMetadata.ValidatedPackageSpec, "web" };
         AppendPortIfNeeded(arguments, serviceUri);
         return arguments;
     }
@@ -104,35 +99,6 @@ public sealed class DshCommandResolver : IDshCommandResolver
     private static string GetDesktopVersion() =>
         Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "unknown";
 
-    private string? FindOnPath(string fileName)
-    {
-        var path = _pathProvider.GetSearchPath();
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-
-        foreach (var entry in path.Split(
-            Path.PathSeparator,
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            try
-            {
-                var candidate = Path.GetFullPath(Path.Combine(entry.Trim('"'), fileName));
-                if (File.Exists(candidate) && (File.GetAttributes(candidate) & FileAttributes.Directory) == 0)
-                {
-                    return candidate;
-                }
-            }
-            catch (Exception exception) when (
-                exception is ArgumentException or IOException or UnauthorizedAccessException)
-            {
-            }
-        }
-
-        return null;
-    }
-
     private static string ResolveCustom(string? path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -154,7 +120,7 @@ public sealed class DshCommandResolver : IDshCommandResolver
 
     private static void ValidateWorkspace(string workspace)
     {
-        if (!Path.IsPathFullyQualified(workspace) || !Directory.Exists(workspace))
+        if (!PathCompatibility.IsFullyQualified(workspace) || !Directory.Exists(workspace))
         {
             throw Error("DSH-E102", "工作目录不存在或不可访问", $"Invalid workspace: {workspace}", false);
         }

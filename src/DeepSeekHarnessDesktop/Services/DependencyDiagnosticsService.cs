@@ -8,58 +8,44 @@ namespace DeepSeekHarnessDesktop.Services;
 
 public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
 {
-    private readonly EnvironmentPathProvider _pathProvider;
     private readonly Func<string?> _getWebView2Version;
     private readonly Func<string, CancellationToken, Task<string?>> _getExecutableVersion;
-    private readonly NpxDshCacheLocator _cacheLocator;
+    private readonly IDshCandidateDiscoveryService _discovery;
 
     public DependencyDiagnosticsService(
         Func<string, string?>? getEnvironmentVariable = null,
         Func<string?>? getWebView2Version = null,
         Func<string, CancellationToken, Task<string?>>? getExecutableVersion = null,
-        NpxDshCacheLocator? cacheLocator = null)
+        NpxDshCacheLocator? cacheLocator = null,
+        IDshCandidateDiscoveryService? discovery = null)
     {
-        _pathProvider = getEnvironmentVariable is null
+        var pathProvider = getEnvironmentVariable is null
             ? new EnvironmentPathProvider()
             : new EnvironmentPathProvider((name, _) => getEnvironmentVariable(name));
         _getWebView2Version = getWebView2Version ?? (() => CoreWebView2Environment.GetAvailableBrowserVersionString());
         _getExecutableVersion = getExecutableVersion ?? GetExecutableVersionAsync;
-        _cacheLocator = cacheLocator ?? new NpxDshCacheLocator();
+        _discovery = discovery ?? new DshCandidateDiscoveryService(
+            pathProvider,
+            cacheLocator: cacheLocator);
     }
 
     public async Task<DependencyDiagnosticsResult> DiagnoseAsync(CancellationToken cancellationToken)
     {
         var errors = new List<HarnessError>();
         var webView = DiagnoseWebView(errors);
-        var path = _pathProvider.GetSearchPath();
-        var dshPath = FindOnPath("dsh.cmd", path);
-        var nodePath = FindOnPath("node.exe", path);
-        var npxPath = FindOnPath("npx.cmd", path);
-        var dsh = await DiagnoseGlobalDshAsync(dshPath, cancellationToken);
-        var node = await DiagnoseNodeAsync(nodePath, cancellationToken);
-        if (dshPath is null && node.Status == DependencyStatus.Available)
-        {
-            var cachedDsh = await _cacheLocator.FindAsync(nodePath, cancellationToken);
-            if (cachedDsh is not null)
-            {
-                dsh = new DependencyCheck(
-                    DependencyStatus.Available,
-                    cachedDsh.EntryPointPath,
-                    cachedDsh.Version,
-                    "Validated npx cache installation.");
-            }
-        }
-        var npx = npxPath is null
-            ? new DependencyCheck(DependencyStatus.Missing, Detail: "npx.cmd was not found on PATH.")
-            : new DependencyCheck(DependencyStatus.Available, npxPath);
+        var discovery = await _discovery.DiscoverAsync(cancellationToken);
+        var dsh = await DiagnoseDshAsync(discovery.Candidate, cancellationToken);
+        var node = await DiagnoseNodeAsync(discovery.NodePath, cancellationToken);
+        var npm = ToolCheck(discovery.NpmPath, "npm.cmd");
+        var npx = ToolCheck(discovery.NpxPath, "npx.cmd");
 
         if (dsh.Status != DependencyStatus.Available
-            && (node.Status != DependencyStatus.Available || npx.Status != DependencyStatus.Available))
+            && (node.Status != DependencyStatus.Available || npm.Status != DependencyStatus.Available))
         {
             errors.Add(new HarnessError(
                 "DSH-E101",
-                "未找到可用的 DSH，且 Node.js 或 npx 不可用",
-                $"dsh: {dsh.Status}; node: {node.Status}; npx: {npx.Status}",
+                "未找到可用的 DSH，且 Node.js 或 npm 不可用",
+                $"dsh: {dsh.Status}; node: {node.Status}; npm: {npm.Status}",
                 true));
         }
 
@@ -70,7 +56,9 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
             dsh,
             node,
             npx,
-            errors);
+            errors,
+            npm,
+            discovery.Candidate?.Source ?? DshInstallationSource.None);
     }
 
     private DependencyCheck DiagnoseWebView(List<HarnessError> errors)
@@ -92,27 +80,42 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
         }
     }
 
-    private async Task<DependencyCheck> DiagnoseGlobalDshAsync(string? path, CancellationToken cancellationToken)
+    private async Task<DependencyCheck> DiagnoseDshAsync(
+        DshInstallationCandidate? candidate,
+        CancellationToken cancellationToken)
     {
-        if (path is null)
+        if (candidate is null)
         {
-            return new DependencyCheck(DependencyStatus.Missing, Detail: "dsh.cmd was not found on PATH.");
+            return new DependencyCheck(DependencyStatus.Missing, Detail: "No reusable DSH installation was found.");
+        }
+
+        if (candidate.Source != DshInstallationSource.GlobalPath)
+        {
+            return new DependencyCheck(
+                DependencyStatus.Available,
+                candidate.EntryPointPath,
+                candidate.Version,
+                $"Validated {candidate.Source} installation.");
         }
 
         try
         {
-            var version = await _getExecutableVersion(path, cancellationToken);
-            return new DependencyCheck(DependencyStatus.Available, path, version);
+            var version = await _getExecutableVersion(candidate.ExecutablePath, cancellationToken);
+            return new DependencyCheck(DependencyStatus.Available, candidate.ExecutablePath, version);
         }
         catch (ArgumentException exception)
         {
-            return new DependencyCheck(DependencyStatus.Unusable, path, Detail: exception.Message);
+            return new DependencyCheck(DependencyStatus.Unusable, candidate.ExecutablePath, Detail: exception.Message);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            return new DependencyCheck(DependencyStatus.Available, path, Detail: exception.Message);
+            return new DependencyCheck(DependencyStatus.Available, candidate.ExecutablePath, Detail: exception.Message);
         }
     }
+
+    private static DependencyCheck ToolCheck(string? path, string fileName) => path is null
+        ? new DependencyCheck(DependencyStatus.Missing, Detail: $"{fileName} was not found on PATH.")
+        : new DependencyCheck(DependencyStatus.Available, path);
 
     private async Task<DependencyCheck> DiagnoseNodeAsync(string? path, CancellationToken cancellationToken)
     {
@@ -132,31 +135,6 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
         }
     }
 
-    internal static string? FindOnPath(string fileName, string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-
-        foreach (var entry in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            try
-            {
-                var candidate = Path.GetFullPath(Path.Combine(entry.Trim('"'), fileName));
-                if (File.Exists(candidate) && (File.GetAttributes(candidate) & FileAttributes.Directory) == 0)
-                {
-                    return candidate;
-                }
-            }
-            catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
-            {
-            }
-        }
-
-        return null;
-    }
-
     private static async Task<string?> GetExecutableVersionAsync(string executablePath, CancellationToken cancellationToken)
     {
         var startInfo = string.Equals(Path.GetExtension(executablePath), ".cmd", StringComparison.OrdinalIgnoreCase)
@@ -172,8 +150,8 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
         timeout.CancelAfter(TimeSpan.FromSeconds(3));
         try
         {
-            var outputTask = process.StandardOutput.ReadToEndAsync(timeout.Token);
-            var errorTask = process.StandardError.ReadToEndAsync(timeout.Token);
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync(timeout.Token);
             var output = (await outputTask).Trim();
             var error = (await errorTask).Trim();
@@ -188,7 +166,7 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
         {
             if (!process.HasExited)
             {
-                process.Kill(entireProcessTree: true);
+                process.Kill();
                 await process.WaitForExitAsync(CancellationToken.None);
             }
 
@@ -205,7 +183,7 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        startInfo.ArgumentList.Add("--version");
+        startInfo.AddArgument("--version");
         return startInfo;
     }
 }

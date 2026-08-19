@@ -11,9 +11,9 @@ public sealed class DeepSeekApiKeyProviderTests
         using var directory = new TemporaryDirectory();
         var workspace = directory.CreateDirectory("workspace");
         var dshHome = directory.CreateDirectory("dsh");
-        await File.WriteAllTextAsync(Path.Combine(dshHome, ".credentials.yaml"), "DEEPSEEK_API_KEY: sk-managed");
-        await File.WriteAllTextAsync(Path.Combine(workspace, ".env"), "DEEPSEEK_API_KEY=sk-project");
-        await File.WriteAllTextAsync(Path.Combine(dshHome, ".env"), "DEEPSEEK_API_KEY=sk-user");
+        File.WriteAllText(Path.Combine(dshHome, ".credentials.yaml"), "DEEPSEEK_API_KEY: sk-managed");
+        File.WriteAllText(Path.Combine(workspace, ".env"), "DEEPSEEK_API_KEY=sk-project");
+        File.WriteAllText(Path.Combine(dshHome, ".env"), "DEEPSEEK_API_KEY=sk-user");
         var provider = CreateProvider(workspace, dshHome, name =>
             name == "DEEPSEEK_API_KEY" ? " sk-inherited " : null);
 
@@ -28,10 +28,10 @@ public sealed class DeepSeekApiKeyProviderTests
         using var directory = new TemporaryDirectory();
         var workspace = directory.CreateDirectory("workspace");
         var dshHome = directory.CreateDirectory("dsh");
-        await File.WriteAllTextAsync(
+        File.WriteAllText(
             Path.Combine(dshHome, ".credentials.yaml"),
             "DEEPSEEK_API_KEY: 'sk-managed''quoted'");
-        await File.WriteAllTextAsync(Path.Combine(workspace, ".env"), "DEEPSEEK_API_KEY=sk-project");
+        File.WriteAllText(Path.Combine(workspace, ".env"), "DEEPSEEK_API_KEY=sk-project");
         var provider = CreateProvider(workspace, dshHome);
 
         var result = await provider.GetCurrentAsync(CancellationToken.None);
@@ -45,10 +45,10 @@ public sealed class DeepSeekApiKeyProviderTests
         using var directory = new TemporaryDirectory();
         var workspace = directory.CreateDirectory("workspace");
         var dshHome = directory.CreateDirectory("dsh");
-        await File.WriteAllTextAsync(
+        File.WriteAllText(
             Path.Combine(workspace, ".env"),
             "export deepseek_api_key=\"sk-project\" # active workspace\n");
-        await File.WriteAllTextAsync(Path.Combine(dshHome, ".env"), "DEEPSEEK_API_KEY=sk-user");
+        File.WriteAllText(Path.Combine(dshHome, ".env"), "DEEPSEEK_API_KEY=sk-user");
         var provider = CreateProvider(workspace, dshHome);
 
         var result = await provider.GetCurrentAsync(CancellationToken.None);
@@ -62,7 +62,7 @@ public sealed class DeepSeekApiKeyProviderTests
         using var directory = new TemporaryDirectory();
         var workspace = directory.CreateDirectory("workspace");
         var dshHome = directory.CreateDirectory("dsh");
-        await File.WriteAllTextAsync(Path.Combine(dshHome, ".env"), "DEEPSEEK_API_KEY=sk-user # fallback");
+        File.WriteAllText(Path.Combine(dshHome, ".env"), "DEEPSEEK_API_KEY=sk-user # fallback");
         var provider = CreateProvider(workspace, dshHome);
 
         var result = await provider.GetCurrentAsync(CancellationToken.None);
@@ -76,7 +76,7 @@ public sealed class DeepSeekApiKeyProviderTests
         using var directory = new TemporaryDirectory();
         var workspace = directory.CreateDirectory("workspace");
         var dshHome = directory.CreateDirectory("dsh");
-        await File.WriteAllTextAsync(Path.Combine(dshHome, ".credentials.yaml"), "DEEPSEEK_API_KEY: |\n  invalid\n");
+        File.WriteAllText(Path.Combine(dshHome, ".credentials.yaml"), "DEEPSEEK_API_KEY: |\n  invalid\n");
         var provider = CreateProvider(workspace, dshHome);
 
         var result = await provider.GetCurrentAsync(CancellationToken.None);

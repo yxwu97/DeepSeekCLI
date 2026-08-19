@@ -1,11 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
+    <OutputType>Exe</OutputType>
     <UseWPF>true</UseWPF>
     <AssemblyName>DeepSeekHarnessDesktop.Phase0Validation</AssemblyName>
     <RootNamespace>DeepSeekHarnessDesktop.Phase0Validation</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Web.WebView2" />
+    <ProjectReference Include="..\..\src\DeepSeekHarnessDesktop\DeepSeekHarnessDesktop.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\dsh-runtime\package.json"
+             Link="dsh-runtime\package.json"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\dsh-runtime\package-lock.json"
+             Link="dsh-runtime\package-lock.json"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

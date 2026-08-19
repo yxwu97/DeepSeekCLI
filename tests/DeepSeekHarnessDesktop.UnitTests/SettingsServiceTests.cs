@@ -16,7 +16,7 @@ public sealed class SettingsServiceTests
         Assert.Equal(SettingsService.CurrentSchemaVersion, settings.SchemaVersion);
         Assert.Equal(new Uri("http://127.0.0.1:3080/"), settings.ServiceUri);
         Assert.Equal(300, settings.StartupTimeoutSeconds);
-        Assert.True(Path.IsPathFullyQualified(settings.WorkspacePath));
+        Assert.True(PathCompatibility.IsFullyQualified(settings.WorkspacePath));
     }
 
     [Fact]
@@ -30,8 +30,8 @@ public sealed class SettingsServiceTests
         await service.SaveAsync(first, CancellationToken.None);
         await service.SaveAsync(second, CancellationToken.None);
 
-        var json = await File.ReadAllTextAsync(Path.Combine(directory.Path, "settings.json"));
-        var backup = await File.ReadAllTextAsync(Path.Combine(directory.Path, "settings.json.bak"));
+        var json = File.ReadAllText(Path.Combine(directory.Path, "settings.json"));
+        var backup = File.ReadAllText(Path.Combine(directory.Path, "settings.json.bak"));
         Assert.Contains("\"schemaVersion\"", json);
         Assert.Contains("second", json);
         Assert.Contains("first", backup);
@@ -47,7 +47,7 @@ public sealed class SettingsServiceTests
         var second = CreateSettings("primary");
         await service.SaveAsync(first, CancellationToken.None);
         await service.SaveAsync(second, CancellationToken.None);
-        await File.WriteAllTextAsync(Path.Combine(directory.Path, "settings.json"), "{broken");
+        File.WriteAllText(Path.Combine(directory.Path, "settings.json"), "{broken");
 
         var recovered = await service.LoadAsync(CancellationToken.None);
         var reloaded = await service.LoadAsync(CancellationToken.None);
@@ -64,8 +64,8 @@ public sealed class SettingsServiceTests
     {
         using var directory = new TemporaryDirectory();
         Directory.CreateDirectory(directory.Path);
-        await File.WriteAllTextAsync(Path.Combine(directory.Path, "settings.json"), "{}");
-        await File.WriteAllTextAsync(Path.Combine(directory.Path, "settings.json.bak"), "not-json");
+        File.WriteAllText(Path.Combine(directory.Path, "settings.json"), "{}");
+        File.WriteAllText(Path.Combine(directory.Path, "settings.json.bak"), "not-json");
         using var service = new SettingsService(directory.Path);
 
         var settings = await service.LoadAsync(CancellationToken.None);
@@ -91,7 +91,7 @@ public sealed class SettingsServiceTests
               "startupTimeoutSeconds": {{sourceTimeout}}
             }
             """;
-        await File.WriteAllTextAsync(Path.Combine(directory.Path, "settings.json"), json);
+        File.WriteAllText(Path.Combine(directory.Path, "settings.json"), json);
         using var service = new SettingsService(directory.Path);
 
         var settings = await service.LoadAsync(CancellationToken.None);
@@ -107,8 +107,8 @@ public sealed class SettingsServiceTests
         using var directory = new TemporaryDirectory();
         var workspace = Path.Combine(directory.Path, "backup-workspace");
         Directory.CreateDirectory(workspace);
-        await File.WriteAllTextAsync(Path.Combine(directory.Path, "settings.json"), "{broken");
-        await File.WriteAllTextAsync(Path.Combine(directory.Path, "settings.json.bak"), $$"""
+        File.WriteAllText(Path.Combine(directory.Path, "settings.json"), "{broken");
+        File.WriteAllText(Path.Combine(directory.Path, "settings.json.bak"), $$"""
             {
               "schemaVersion": 1,
               "workspacePath": "{{JsonEscape(workspace)}}",
@@ -120,7 +120,7 @@ public sealed class SettingsServiceTests
         using var service = new SettingsService(directory.Path);
 
         var settings = await service.LoadAsync(CancellationToken.None);
-        var repaired = await File.ReadAllTextAsync(Path.Combine(directory.Path, "settings.json"));
+        var repaired = File.ReadAllText(Path.Combine(directory.Path, "settings.json"));
 
         Assert.Equal(2, settings.SchemaVersion);
         Assert.Equal(300, settings.StartupTimeoutSeconds);
@@ -154,13 +154,13 @@ public sealed class SettingsServiceTests
         Directory.CreateDirectory(directory.Path);
         var path = Path.Combine(directory.Path, "settings.json");
         const string source = "{\"schemaVersion\":99,\"workspacePath\":\"C:\\\\work\"}";
-        await File.WriteAllTextAsync(path, source);
+        File.WriteAllText(path, source);
         using var service = new SettingsService(directory.Path);
 
         var settings = await service.LoadAsync(CancellationToken.None);
 
         Assert.Equal(SettingsService.CreateDefaults(), settings);
-        Assert.Equal(source, await File.ReadAllTextAsync(path));
+        Assert.Equal(source, File.ReadAllText(path));
     }
 
     private static AppSettings CreateSettings(string leaf) => new()

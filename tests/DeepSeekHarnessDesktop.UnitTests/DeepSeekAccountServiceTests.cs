@@ -3,6 +3,7 @@ using DeepSeekHarnessDesktop.Services;
 using DeepSeekHarnessDesktop.Services.Abstractions;
 using DeepSeekHarnessDesktop.ViewModels;
 using System.Net;
+using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 
@@ -46,7 +47,7 @@ public sealed class DeepSeekAccountServiceTests
     [Theory]
     [InlineData(HttpStatusCode.Unauthorized, "API-E601")]
     [InlineData(HttpStatusCode.Forbidden, "API-E601")]
-    [InlineData(HttpStatusCode.TooManyRequests, "API-E602")]
+    [InlineData((HttpStatusCode)429, "API-E602")]
     [InlineData(HttpStatusCode.InternalServerError, "API-E604")]
     [InlineData(HttpStatusCode.BadRequest, "API-E606")]
     public async Task HttpFailuresMapToStableAccountErrors(HttpStatusCode statusCode, string expectedCode)

@@ -1,5 +1,6 @@
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services.Abstractions;
+using System.Diagnostics;
 
 namespace DeepSeekHarnessDesktop.Services;
 
@@ -39,7 +40,7 @@ public sealed class DesignHarnessLifecycleCoordinator(HarnessStateMachine stateM
                 generation,
                 "应用实例运行中（开发模拟）",
                 new Uri("http://127.0.0.1:3080/"),
-                Environment.ProcessId);
+                Process.GetCurrentProcess().Id);
         }, cancellationToken);
     }
 
@@ -76,7 +77,7 @@ public sealed class DesignHarnessLifecycleCoordinator(HarnessStateMachine stateM
                 generation,
                 "应用实例运行中（开发模拟）",
                 new Uri("http://127.0.0.1:3080/"),
-                Environment.ProcessId);
+                Process.GetCurrentProcess().Id);
         }, cancellationToken);
     }
 
@@ -115,6 +116,6 @@ public sealed class DesignHarnessLifecycleCoordinator(HarnessStateMachine stateM
     public ValueTask DisposeAsync()
     {
         _gate.Dispose();
-        return ValueTask.CompletedTask;
+        return new ValueTask();
     }
 }

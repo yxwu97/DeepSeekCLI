@@ -31,7 +31,7 @@ public sealed class CodeWebViewService : ICodeWebViewService, IAsyncDisposable
 
     public void Attach(WebView2 browser)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed) throw new ObjectDisposedException(nameof(CodeWebViewService));
         if (_browser is not null && !ReferenceEquals(_browser, browser))
         {
             throw new InvalidOperationException("A Code WebView2 control is already attached.");
@@ -41,7 +41,7 @@ public sealed class CodeWebViewService : ICodeWebViewService, IAsyncDisposable
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed) throw new ObjectDisposedException(nameof(CodeWebViewService));
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetimeCts.Token);
         await _operationGate.WaitAsync(linkedCts.Token);
         try
@@ -62,7 +62,7 @@ public sealed class CodeWebViewService : ICodeWebViewService, IAsyncDisposable
                 "DSH-E202", "服务地址无效", "Code navigation URI was rejected.", true));
         }
 
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed) throw new ObjectDisposedException(nameof(CodeWebViewService));
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetimeCts.Token);
         await _operationGate.WaitAsync(linkedCts.Token);
         try
@@ -84,7 +84,7 @@ public sealed class CodeWebViewService : ICodeWebViewService, IAsyncDisposable
 
     public async Task ReloadAsync(CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed) throw new ObjectDisposedException(nameof(CodeWebViewService));
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetimeCts.Token);
         await _operationGate.WaitAsync(linkedCts.Token);
         try

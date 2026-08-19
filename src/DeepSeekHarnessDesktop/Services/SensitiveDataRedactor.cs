@@ -3,9 +3,15 @@ using System.Text.RegularExpressions;
 
 namespace DeepSeekHarnessDesktop.Services;
 
-public sealed partial class SensitiveDataRedactor
+public sealed class SensitiveDataRedactor
 {
     private const string Replacement = "[REDACTED]";
+    private static readonly Regex BearerTokenPattern = new(
+        @"(?i)(Authorization\s*:\s*Bearer\s+)[^\s,;]+",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex SensitiveQueryPattern = new(
+        @"(?i)([?&](?:key|token|secret)=)[^&#\s]+",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private readonly IReadOnlyList<string> _sensitiveValues;
 
     public SensitiveDataRedactor(IDictionary? environment = null)
@@ -30,8 +36,8 @@ public sealed partial class SensitiveDataRedactor
             return text;
         }
 
-        var redacted = BearerTokenRegex().Replace(text, match => $"{match.Groups[1].Value}{Replacement}");
-        redacted = SensitiveQueryRegex().Replace(redacted, match => $"{match.Groups[1].Value}{Replacement}");
+        var redacted = BearerTokenPattern.Replace(text, match => $"{match.Groups[1].Value}{Replacement}");
+        redacted = SensitiveQueryPattern.Replace(redacted, match => $"{match.Groups[1].Value}{Replacement}");
         foreach (var value in _sensitiveValues)
         {
             redacted = redacted.Replace(value, Replacement, StringComparison.Ordinal);
@@ -44,9 +50,4 @@ public sealed partial class SensitiveDataRedactor
         || name?.Contains("TOKEN", StringComparison.OrdinalIgnoreCase) == true
         || name?.Contains("SECRET", StringComparison.OrdinalIgnoreCase) == true;
 
-    [GeneratedRegex(@"(?i)(Authorization\s*:\s*Bearer\s+)[^\s,;]+", RegexOptions.CultureInvariant)]
-    private static partial Regex BearerTokenRegex();
-
-    [GeneratedRegex(@"(?i)([?&](?:key|token|secret)=)[^&#\s]+", RegexOptions.CultureInvariant)]
-    private static partial Regex SensitiveQueryRegex();
 }

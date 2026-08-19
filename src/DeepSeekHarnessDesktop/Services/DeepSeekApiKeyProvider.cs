@@ -68,7 +68,7 @@ public sealed class DeepSeekApiKeyProvider : IDeepSeekApiKeyProvider
         var configured = _getEnvironmentVariable("DSH_HOME");
         return string.IsNullOrWhiteSpace(configured)
             ? _defaultDshHome
-            : Path.GetFullPath(configured.Trim());
+            : Path.GetFullPath(configured!.Trim());
     }
 
     private static async Task<string?> ReadCredentialFileAsync(
@@ -92,7 +92,7 @@ public sealed class DeepSeekApiKeyProvider : IDeepSeekApiKeyProvider
 
             var separator = line.IndexOf(':');
             if (separator < 0
-                || !string.Equals(line[..separator].Trim(), ApiKeyName, StringComparison.Ordinal))
+                || !string.Equals(line.Substring(0, separator).Trim(), ApiKeyName, StringComparison.Ordinal))
             {
                 continue;
             }
@@ -103,7 +103,7 @@ public sealed class DeepSeekApiKeyProvider : IDeepSeekApiKeyProvider
             }
 
             found = true;
-            result = ParseScalar(line[(separator + 1)..]);
+            result = ParseScalar(line.Substring(separator + 1));
         }
 
         return Normalize(result);
@@ -130,17 +130,17 @@ public sealed class DeepSeekApiKeyProvider : IDeepSeekApiKeyProvider
 
             if (line.StartsWith("export ", StringComparison.Ordinal))
             {
-                line = line[7..].TrimStart();
+                line = line.Substring(7).TrimStart();
             }
 
             var separator = line.IndexOf('=');
             if (separator < 0
-                || !string.Equals(line[..separator].Trim(), ApiKeyName, StringComparison.OrdinalIgnoreCase))
+                || !string.Equals(line.Substring(0, separator).Trim(), ApiKeyName, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            result = ParseScalar(line[(separator + 1)..]);
+            result = ParseScalar(line.Substring(separator + 1));
         }
 
         return Normalize(result);
@@ -152,7 +152,8 @@ public sealed class DeepSeekApiKeyProvider : IDeepSeekApiKeyProvider
     {
         try
         {
-            return await File.ReadAllLinesAsync(path, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            return await Task.Run(() => File.ReadAllLines(path), cancellationToken);
         }
         catch (FileNotFoundException)
         {
@@ -191,7 +192,7 @@ public sealed class DeepSeekApiKeyProvider : IDeepSeekApiKeyProvider
         }
 
         var comment = FindInlineComment(value);
-        return (comment < 0 ? value : value[..comment]).TrimEnd();
+        return (comment < 0 ? value : value.Substring(0, comment)).TrimEnd();
     }
 
     private static string? ParseSingleQuoted(string value)
@@ -212,7 +213,7 @@ public sealed class DeepSeekApiKeyProvider : IDeepSeekApiKeyProvider
                 continue;
             }
 
-            return HasOnlyTrailingComment(value[(index + 1)..]) ? result.ToString() : null;
+            return HasOnlyTrailingComment(value.Substring(index + 1)) ? result.ToString() : null;
         }
 
         return null;
@@ -240,14 +241,14 @@ public sealed class DeepSeekApiKeyProvider : IDeepSeekApiKeyProvider
                 continue;
             }
 
-            if (!HasOnlyTrailingComment(value[(index + 1)..]))
+            if (!HasOnlyTrailingComment(value.Substring(index + 1)))
             {
                 return null;
             }
 
             try
             {
-                return JsonSerializer.Deserialize<string>(value[..(index + 1)]);
+                return JsonSerializer.Deserialize<string>(value.Substring(0, index + 1));
             }
             catch (JsonException)
             {

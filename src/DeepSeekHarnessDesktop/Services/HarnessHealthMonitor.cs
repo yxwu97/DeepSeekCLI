@@ -17,13 +17,16 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
 
     public HarnessHealthMonitor()
     {
-        _client = new HttpClient(new SocketsHttpHandler
-        {
-            AllowAutoRedirect = false,
-            UseCookies = false,
-        });
+        _client = new HttpClient(CreateLoopbackHandler());
         _ownsClient = true;
     }
+
+    public static HttpClientHandler CreateLoopbackHandler() => new()
+    {
+        AllowAutoRedirect = false,
+        UseCookies = false,
+        UseProxy = false,
+    };
 
     public HarnessHealthMonitor(HttpClient client)
     {
@@ -171,7 +174,7 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
         HttpStatusCode.Found or
         HttpStatusCode.SeeOther or
         HttpStatusCode.TemporaryRedirect or
-        HttpStatusCode.PermanentRedirect;
+        (HttpStatusCode)308;
 
     private static bool IsHtml(MediaTypeHeaderValue? contentType) =>
         contentType?.MediaType?.Equals("text/html", StringComparison.OrdinalIgnoreCase) == true
@@ -179,17 +182,18 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
 
     private static async Task<string?> ReadBoundedBodyAsync(HttpContent content, CancellationToken cancellationToken)
     {
-        await using var stream = await content.ReadAsStreamAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        using var stream = await content.ReadAsStreamAsync();
         using var memory = new MemoryStream(MaximumResponseBytes + 1);
         var buffer = new byte[16 * 1024];
         while (memory.Length <= MaximumResponseBytes)
         {
-            var count = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+            var count = await stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
             if (count == 0)
             {
                 return Encoding.UTF8.GetString(memory.GetBuffer(), 0, checked((int)memory.Length));
             }
-            await memory.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
+            await memory.WriteAsync(buffer, 0, count, cancellationToken);
         }
         return null;
     }

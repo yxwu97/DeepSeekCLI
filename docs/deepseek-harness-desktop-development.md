@@ -4,8 +4,8 @@
 
 - 项目名称：DeepSeek Harness Desktop
 - 目标平台：Windows 10/11 x64
-- 文档版本：0.7
-- 更新日期：2026-08-18
+- 文档版本：0.8
+- 更新日期：2026-08-19
 - 项目目录：`E:\DeepSeekCLI`
 - 官方文档：<https://deepseek-harness.github.io/deepseek-harness/guide/quickstart>
 - 官方仓库：<https://github.com/deepseek-ai/deepseek-harness>
@@ -43,7 +43,7 @@
 - Web UI 内仍需选择工作区，选择前会话输入不可用。
 - DSH 当前处于 Developer Preview，后续版本可能存在不兼容变更。
 
-Desktop 0.9 发布为 framework-dependent 轻量宿主，不携带 .NET、Node 或 DSH。应用启动后检查 WebView2、Node.js、npx 和 DSH；优先使用全局 `dsh.cmd`，其次复用当前用户 npx 缓存中校验通过的固定版本，只有两者都不存在时才经用户确认通过 `npx.cmd` 下载并启动。
+Desktop 0.10 发布为 .NET Framework 4.8 轻量宿主，不携带 CoreCLR、Node 或 DSH。应用启动后检查 WebView2、Node.js、npx 和 DSH；优先使用全局 `dsh.cmd`，其次复用当前用户 npx 缓存中校验通过的固定版本，只有两者都不存在时才经用户确认通过 `npx.cmd` 下载并启动。
 
 当前开发机环境：
 
@@ -52,7 +52,7 @@ Desktop 0.9 发布为 framework-dependent 轻量宿主，不携带 .NET、Node �
 - 已验证 DSH：`0.1.0-rc.6`
 - `dsh` 当前不在全局 PATH 中
 - .NET SDK：已安装 9.0 和 10.0
-- .NET 8 Windows Desktop Runtime：已安装
+- .NET Framework 4.8：已安装
 - 默认端口 `3080` 在检查时未被占用
 
 没有全局 DSH 时，客户端使用以下固定命令模板：
@@ -72,18 +72,18 @@ dotnet build DeepSeekHarnessDesktop.sln -c Debug --no-restore -m:1
 dotnet run --project src/DeepSeekHarnessDesktop/DeepSeekHarnessDesktop.csproj --no-build
 ```
 
-开发机必须安装 .NET 8 SDK、WebView2 和 Node.js LTS。普通 build/publish 不执行 npm；只有用户实际选择“准备并启动”且系统没有全局 DSH 时，运行中的客户端才会在确认后调用固定 npx 模板。
+开发机必须安装支持 net48 的 .NET SDK、.NET Framework 4.8 targeting pack、WebView2 和 Node.js LTS。普通 build/publish 不执行 npm；只有用户实际选择“准备并启动”且系统没有全局或缓存 DSH 时，运行中的客户端才会在确认后调用固定 npx 模板。
 
 ## 4. 技术方案
 
 ### 4.1 技术栈
 
-- 桌面框架：C#、.NET 8、WPF
+- 桌面框架：C#、.NET Framework 4.8、WPF
 - 内嵌浏览器：Microsoft Edge WebView2
 - 配置存储：JSON
 - 日志：应用内文本日志和本地滚动日志文件
 - 测试：xUnit，必要时增加 WPF UI 自动化测试
-- 发布：`dotnet publish`，Windows x64 framework-dependent
+- 发布：`dotnet publish`，Windows x64 .NET Framework 4.8 轻量 ZIP
 - 安装包：后续使用 WiX Toolset 或 MSIX
 
 不采用 Electron。该应用只需要一个原生控制栏、进程管理和 WebView2，WPF 的安装体积、启动速度和系统集成更合适。
@@ -341,8 +341,8 @@ Chat 使用独立 `ChatPageState`（未初始化、初始化、就绪、失败�
 - WebView2 禁止任意网页调用本机进程管理功能。
 - 首版不向网页注入宿主对象或执行自定义 JavaScript。
 - 不将用户选择的目录拼接进 Shell 命令。
-- 客户端不安装或调用用户 Node/npm，不读取用户缓存；Auto 只使用随包且校验通过的私有运行时。
-- 归档解包拒绝穿越、绝对路径、冒号/ADS、重复/额外项、reparse 目标及数量/大小超限。
+- Auto 只使用 PATH 中的全局 DSH、标准 `_npx` 根中经固定包名/版本/bin/入口校验的缓存 DSH，或经用户确认的固定 npx 命令。
+- 不硬编码 cache id，不执行 manifest 指定的任意入口，不接受用户包名、任意 Shell 文本或额外 npm 参数。
 - 不停止未由当前应用创建的进程。
 - 外部链接使用系统浏览器打开。
 - 应用使用普通用户权限运行，不请求管理员权限。
@@ -408,7 +408,7 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 - WebView2 Runtime 检测
 - 自动化测试
 - 应用图标和版本信息
-- framework-dependent 轻量发布和安装说明
+- .NET Framework 4.8 轻量发布和安装说明
 
 ## 15. 测试要求
 
@@ -522,7 +522,16 @@ npx.cmd -y @deepseek-ai/dsh@0.1.0-rc.6 web --port <1-65535>
 
 ## 19. Desktop 0.9.0 轻量环境准备
 
-- 发布为 framework-dependent ZIP，要求目标机预装 .NET 8 Desktop Runtime；发布包不得携带 .NET、Node、npm、npx、DSH cache 或用户数据。
+- 发布为 .NET Framework 4.8 轻量 ZIP；发布包不得携带 CoreCLR、Node、npm、npx、DSH cache 或用户数据。
 - 主窗口先显示，再检查 WebView2、Node.js、npx、全局 DSH 和可复用的固定版本缓存。安装引导的主按钮按当前首个缺失项打开官方安装页，环境满足后才启动 DSH。
 - 全局 DSH 优先，其次用 PATH 中的 Node 直接启动校验通过的缓存入口；只有没有可复用安装时才进入带用户确认的精确版本 npx 路径。npm DNS、TLS、registry 和权限错误映射为稳定的 `DSH-E211` 至 `DSH-E214`。
 - 发布门禁限制 ZIP 不超过 30 MiB、主 EXE 不超过 5 MiB，并继续验证进程所有权、HTTP 身份、loopback/同源与日志脱敏边界。
+
+## 20. Desktop 0.10.1 首次私有安装可靠性
+
+- 当前 Auto 发现顺序为 PATH 全局 `dsh.cmd`、Desktop 已激活私有安装、严格 `_npx` 缓存。命中任一候选后直接启动，不运行 npm/npx，不访问 registry；第 18、19 节中的动态 npx 回退仅为历史行为。
+- 全部候选缺失且 Node.js/npm 可用时，安装引导先取得用户确认，再将发布包内 `eng/dsh-runtime` 的精确 package/lockfile 复制到唯一 staging，以受控 `npm ci --omit=dev` 安装。安装内容、lock SHA-256 和真实 DSH HTTP 身份全部通过后才写入 `active.json`。
+- 准备总期限固定 10 分钟、连续无进展期限固定 3 分钟，超时使用 `DSH-E221`；DSH 进程已创建后的 HTTP 身份超时继续使用 `DSH-E203`。安装进程树与 DSH 进程树均先加入 Job Object 再恢复执行。
+- 默认 loopback 健康 handler 明确 `UseProxy = false`，不会因系统代理误判本机 DSH 不可达；注入测试 `HttpClient` 的构造器保持调用方 handler 语义。
+- 手动全局安装 `npm install -g @deepseek-ai/dsh@0.1.0-rc.6` 和手动外部启动 `npx @deepseek-ai/dsh@0.1.0-rc.6 web` 始终保留。Desktop 只复制命令、打开 PowerShell并重新诊断，不执行或拥有手动进程。
+- Release 仅增加约 367 KiB lockfile，不包含 `node_modules`。真实空缓存验证安装 530 个落盘包约 252 MiB，用时 51 秒；第二次准备 npm 调用为 0，并再次通过 DSH HTTP 双身份标记。

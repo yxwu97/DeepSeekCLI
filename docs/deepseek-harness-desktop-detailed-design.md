@@ -4,13 +4,13 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | 1.4 |
-| 更新日期 | 2026-08-18 |
-| 目标版本 | Desktop 0.8.0 |
+| 文档版本 | 1.6 |
+| 更新日期 | 2026-08-19 |
+| 目标版本 | Desktop 0.10.1 |
 | 目标平台 | Windows 10/11 x64 |
-| 桌面框架 | .NET 8 / WPF |
+| 桌面框架 | .NET Framework 4.8 / WPF |
 | 网页宿主 | Microsoft Edge WebView2 |
-| 默认 DSH 入口 | 随包私有 `node.exe` + 托管 DSH `0.1.0-rc.6` CLI |
+| 默认 DSH 入口 | PATH `dsh.cmd`、Desktop 私有安装、校验后的固定 npx 缓存、确认后的一次锁定私有安装 |
 | 默认服务地址 | `http://127.0.0.1:3080/` |
 
 相关文档：
@@ -45,7 +45,7 @@
 
 | 编号 | 决策 | 原因 |
 |---|---|---|
-| DD-001 | 使用 WPF 和 .NET 8 | Windows 原生集成、依赖少、适合轻量桌面宿主 |
+| DD-001 | 使用 WPF 和 .NET Framework 4.8 | Windows 10/11 原生兼容、无需额外部署 CoreCLR Desktop Runtime |
 | DD-002 | 使用 WebView2 Evergreen Runtime | 与目标 Windows 环境匹配，不重复打包浏览器内核 |
 | DD-003 | DSH 作为独立子进程运行 | 保持官方运行方式，隔离崩溃和升级影响 |
 | DD-004 | 生命周期操作严格串行 | 防止同时启动、停止或重启造成双实例和端口竞争 |
@@ -54,7 +54,7 @@
 | DD-007 | URL 优先从 DSH 输出解析 | DSH 可能改变端口，不能只依赖 `3080` |
 | DD-008 | 配置使用版本化 JSON | 易读、可迁移、无需引入数据库 |
 | DD-009 | UI 与进程服务通过接口解耦 | 便于测试状态机和异常路径 |
-| DD-010 | Auto 只使用发布阶段精确锁定、随包交付并经 manifest/hash 校验的私有运行时 | 消除用户设备上的实时依赖解析、registry、PATH 和 npm cache 漂移 |
+| DD-010 | Auto 依次复用全局 DSH、Desktop 私有安装和严格校验的固定 npx 缓存；全部缺失时才确认一次锁定私有安装 | 已安装环境不重复下载，同时冻结完整传递依赖图并拒绝任意 npm 参数 |
 | DD-011 | Owned DSH 固定随桌面宿主退出 | 与 Job Object 的 `KILL_ON_JOB_CLOSE` 语义一致，优先保证无残留进程 |
 | DD-012 | HTTP 可达与 DSH 身份确认分离 | 防止把占用端口的无关 Web 服务误判为外部 DSH |
 | DD-013 | `RunningExternal` 使用主动健康监测 | 消除仅靠导航失败才能发现外部服务失联的状态盲区 |
@@ -235,7 +235,7 @@ DeepSeekCLI/
 
 ### 7.2 运行时依赖
 
-- .NET 8 Desktop Runtime x64；framework-dependent 应用启动前必须存在。
+- .NET Framework 4.8；Windows 11 和已更新的 Windows 10 通常已包含，应用启动前必须存在。
 - Microsoft Edge WebView2 Evergreen Runtime。
 - Auto 模式需要 PATH 中可用的全局 `dsh.cmd`，或 Node.js LTS 提供的 `node.exe` 与 `npx.cmd`。
 
@@ -630,9 +630,9 @@ public sealed record ProcessOutputLine(
 
 1. 取消当前健康检查和导航。
 2. 将状态切换为 `Stopping`。
-3. 调用 `Process.Kill(entireProcessTree: true)`。
-4. 等待 `WaitForExitAsync`，默认不超过 5 秒。
-5. 仍未退出时关闭 Job Object，确保所属进程被系统清理。
+3. 关闭当前 Owned 进程对应的 Job Object，使用 `KILL_ON_JOB_CLOSE` 终止整个进程树。
+4. 通过 net48 兼容的异步退出等待，默认不超过 5 秒。
+5. 超时后再次确认 Job 已关闭，并在有限门限内等待退出完成。
 6. 释放 stdout/stderr 读取任务和 `Process` 对象。
 7. 清空进程所有权信息。
 8. 状态切换为 `Stopped`。
@@ -655,7 +655,7 @@ JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 
 MVP 明确选择“桌面宿主退出即停止 Owned DSH”：所有 Owned 进程都加入带 `KILL_ON_JOB_CLOSE` 的 Job，不提供“退出后保留 Owned DSH”配置。该选择牺牲后台保留能力，以满足崩溃清理和“应用退出后无残留进程”的验收要求；未来若增加托盘常驻，应由宿主继续持有 Job Handle，而不是让进程脱离 Job。
 
-若 AssignProcessToJobObject 失败，记录警告并继续运行，同时在退出时使用 `Kill(entireProcessTree: true)`。
+若 `AssignProcessToJobObject` 失败，启动必须失败并清理尚未恢复的挂起进程；不得让 Owned 进程脱离 Job 后继续运行。
 
 ### 13.5 外部实例
 
@@ -674,7 +674,7 @@ MVP 明确选择“桌面宿主退出即停止 Owned DSH”：所有 Owned 进�
 
 进入 `RunningExternal` 后立即启动主动监测，不能仅依赖 WebView2 导航失败：
 
-- 使用 `PeriodicTimer`，默认每 5 秒探测当前已验证 Service URI，单次超时 2 秒。
+- 使用可取消的 `Task.Delay` 串行循环，默认每 5 秒探测当前已验证 Service URI，单次超时 2 秒。
 - 同一时刻最多一个探测；慢探测不会并发堆积。
 - 连续 3 次 `Unreachable` 才发布 `HealthLost`，避免一次瞬时抖动改变状态；任一次成功清零计数。
 - `ReachableUnknown` 表示端口上的服务身份发生变化，立即发布 `HealthLost`，状态文字明确“原 DSH 已不可用，地址上检测到其他服务”。
@@ -1237,7 +1237,8 @@ Local\DeepSeekHarnessDesktop-<CurrentUserSid>
 
 ```xml
 <PropertyGroup>
-  <TargetFramework>net8.0-windows</TargetFramework>
+  <TargetFramework>net48</TargetFramework>
+  <LangVersion>latest</LangVersion>
   <UseWPF>true</UseWPF>
   <Nullable>enable</Nullable>
   <ImplicitUsings>enable</ImplicitUsings>
@@ -1252,15 +1253,13 @@ Local\DeepSeekHarnessDesktop-<CurrentUserSid>
 ```powershell
 dotnet publish src/DeepSeekHarnessDesktop/DeepSeekHarnessDesktop.csproj `
   -c Release `
-  -r win-x64 `
-  --self-contained false `
-  -p:PublishSingleFile=false `
+  -p:PlatformTarget=x64 `
   -p:DebugType=None
 ```
 
 说明：
 
-- 应用按 framework-dependent 轻量 ZIP 发布，目标机必须先安装 .NET 8 Desktop Runtime x64。
+- 应用按 .NET Framework 4.8 轻量 ZIP 发布，不携带 CoreCLR；Windows 11 和已更新的 Windows 10 通常已具备运行环境。
 - WebView2 Evergreen Runtime 不打入应用 EXE。
 - 应用启动后检查 WebView2 和 Node.js，缺失时打开官方安装页面。
 - 发布门禁限制 ZIP 不超过 30 MiB、主 EXE 不超过 5 MiB，并拒绝 Node/npm/DSH cache 与用户数据。
@@ -1328,7 +1327,7 @@ dotnet publish src/DeepSeekHarnessDesktop/DeepSeekHarnessDesktop.csproj `
 
 1. 完成图标、版本信息和 app.manifest。
 2. 执行多 DPI 和窗口尺寸验证。
-3. 生成 framework-dependent 轻量发布包。
+3. 生成 .NET Framework 4.8 轻量发布包。
 4. 在干净 Windows 环境验证 Node.js、WebView2 缺失提示。
 5. 输出安装说明和已知问题。
 
@@ -1368,7 +1367,7 @@ MVP 必须同时满足：
 
 未确认时采用本文默认值：Windows x64、允许高级自定义原生可执行文件、关闭时固定停止应用实例、首版先提供 ZIP。Desktop 0.2.0 已支持受控数字端口模板，但不接受任意用户 Shell 参数。
 
-以下第 30 至 32 节保留 0.2.0 至 0.6.1 的历史设计记录，其中 npx 路径已被第 33 节取代。
+以下第 30 至 33 节保留 0.2.0 至 0.9.0 的历史设计记录，其中动态 npx 路径已被第 34 节取代。
 
 ## 30. Desktop 0.2.0 安装、地址与更新增量
 
@@ -1434,4 +1433,26 @@ MVP 必须同时满足：
 
 ### 33.4 发布
 
-发布使用 framework-dependent `win-x64` ZIP。目标机需预装 .NET 8 Desktop Runtime，包内不包含 .NET、Node、npm、npx、DSH cache 或用户数据。门禁限制 ZIP 不超过 30 MiB、主 EXE 不超过 5 MiB，并验证版本元数据、单元/集成测试、WebView2 smoke 和禁入条目。
+发布使用 .NET Framework 4.8 `win-x64` 轻量 ZIP。包内不包含 CoreCLR、Node、npm、npx、DSH cache 或用户数据。门禁限制 ZIP 不超过 30 MiB、主 EXE 不超过 5 MiB，并验证版本元数据、单元/集成测试、WebView2 smoke 和禁入条目。
+
+## 34. Desktop 0.10.1 锁定私有安装设计
+
+### 34.1 统一发现与手动兼容
+
+`DshCandidateDiscoveryService` 是 resolver 与 diagnostics 的共同事实来源，顺序固定为 PATH 全局 `dsh.cmd`、`%LOCALAPPDATA%\DeepSeekHarnessDesktop\dsh` 已激活私有安装、标准 `_npx` 直接子目录中的严格 rc.6 缓存。发现阶段不访问网络；私有/缓存均通过 PATH `node.exe` 直接运行固定 `lib/bin.js`。生产 `CmdCommandLineBuilder` 不再允许动态 npx 回退。
+
+安装引导继续提供固定全局安装和手动 npx 外部启动。Desktop 只复制固定文本并打开工作目录 PowerShell；重新诊断后全局 `dsh.cmd` 始终优先，手动 npx 服务只按 `RunningExternal` 连接。
+
+### 34.2 锁定资源与事务
+
+Release 携带 `dsh-runtime/package.json` 和精确 `package-lock.json`，不携带 Node、npm 或 `node_modules`。首次确认后，Store 创建同卷唯一 staging，校验资源根依赖、lock SHA-256 和固定 rc.6 manifest，再由安装 runner 只允许 `npm ci --omit=dev`。版本目录绑定 rc.6 与 lock digest；完成标记、入口、manifest、lock digest 和所有关键祖先的 reparse point 校验通过后，才可成为候选。
+
+安装成功后先启动私有入口进行真实 HTTP 双标记 smoke，停止该 Owned 树后再用临时文件和 `File.Replace` 原子更新 `active.json`，并保留 `.bak` 恢复。失败、取消或超时只清理本次 staging；staging 已移动后的清理必须幂等。第二次启动发现 active 后不得调用 npm/npx。
+
+### 34.3 超时、错误与所有权
+
+`NpmInstallRunner` 使用挂起创建、Job Object、异步 stdout/stderr 和单调时间。准备总期限 10 分钟、无进展期限 3 分钟；停滞返回 `DSH-E221`，DNS/TLS/registry/权限继续映射 `DSH-E211` 至 `DSH-E214`。npm 根进程退出后的输出排空也有有限期限，取消和所有失败路径均关闭 Job 并等待整棵树退出。准备完成后，DSH HTTP 身份等待单独使用配置的启动期限，超时仍为 `DSH-E203`。
+
+### 34.4 健康与发布门禁
+
+默认 `HarnessHealthMonitor` 的 loopback `HttpClientHandler` 设置 `UseProxy = false`、`AllowAutoRedirect = false` 和 `UseCookies = false`；每跳 loopback 与 DSH 身份规则不变。Release 门禁校验代码固定版本与 package/lock 根版本一致、源/发布资源 SHA-256 一致、ZIP 不含 `node_modules`，并默认执行真实空缓存私有安装、HTTP 身份和二次免下载 smoke。真实 2026-08-19 样本安装 530 个落盘包约 252 MiB，首次 51 秒，第二次 npm 调用为 0。

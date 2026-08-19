@@ -1,5 +1,6 @@
 using DrawingIcon = System.Drawing.Icon;
 using Forms = System.Windows.Forms;
+using System.Reflection;
 
 namespace DeepSeekHarnessDesktop.Services;
 
@@ -20,7 +21,8 @@ public sealed class TrayIconService : IDisposable
         }
         _openWindow = openWindow;
         _exitApplication = exitApplication;
-        _icon = DrawingIcon.ExtractAssociatedIcon(Environment.ProcessPath
+        _icon = DrawingIcon.ExtractAssociatedIcon(
+            Assembly.GetEntryAssembly()?.Location
             ?? throw new InvalidOperationException("The application executable path is unavailable."));
 
         var openItem = new Forms.ToolStripMenuItem("打开 DeepSeek Harness Desktop");

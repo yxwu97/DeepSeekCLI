@@ -109,7 +109,7 @@ public partial class MainWindow : System.Windows.Window
         window.Show();
         if (_viewModel.RecentLogs.Count > 0)
         {
-            window.LogList.ScrollIntoView(_viewModel.RecentLogs[^1]);
+            window.LogList.ScrollIntoView(_viewModel.RecentLogs[_viewModel.RecentLogs.Count - 1]);
         }
     }
 

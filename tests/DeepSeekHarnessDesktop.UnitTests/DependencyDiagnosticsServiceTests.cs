@@ -1,5 +1,6 @@
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services;
+using DeepSeekHarnessDesktop.Services.Abstractions;
 using System.Text.Json;
 
 namespace DeepSeekHarnessDesktop.UnitTests;
@@ -15,6 +16,7 @@ public sealed class DependencyDiagnosticsServiceTests : IDisposable
     {
         CreateFile("dsh.cmd");
         CreateFile("node.exe");
+        CreateFile("npm.cmd");
         CreateFile("npx.cmd");
         var service = CreateService();
 
@@ -32,12 +34,16 @@ public sealed class DependencyDiagnosticsServiceTests : IDisposable
     public async Task NodeAndNpxCanPrepareDshWhenGlobalDshIsMissing()
     {
         CreateFile("node.exe");
+        CreateFile("npm.cmd");
         CreateFile("npx.cmd");
 
         var result = await CreateService().DiagnoseAsync(CancellationToken.None);
 
         Assert.Equal(DependencyStatus.Missing, result.GlobalDsh.Status);
         Assert.True(result.CanLaunchDsh);
+        Assert.False(result.HasInstalledDsh);
+        Assert.True(result.CanPrepareDsh);
+        Assert.True(result.RequiresDshPreparation);
         Assert.DoesNotContain(result.Errors, error => error.Code == "DSH-E101");
     }
 
@@ -53,6 +59,9 @@ public sealed class DependencyDiagnosticsServiceTests : IDisposable
         Assert.Equal(DependencyStatus.Available, result.GlobalDsh.Status);
         Assert.Equal(entryPoint, result.GlobalDsh.Path, ignoreCase: true);
         Assert.Equal("0.1.0-rc.6", result.GlobalDsh.Version);
+        Assert.Equal(DshInstallationSource.NpxCache, result.DshSource);
+        Assert.True(result.HasInstalledDsh);
+        Assert.False(result.RequiresDshPreparation);
         Assert.Equal(DependencyStatus.Missing, result.Npx.Status);
         Assert.True(result.CanLaunchDsh);
         Assert.DoesNotContain(result.Errors, error => error.Code == "DSH-E101");
@@ -84,11 +93,21 @@ public sealed class DependencyDiagnosticsServiceTests : IDisposable
         Assert.Contains(result.Errors, error => error.Code == "DSH-E101");
     }
 
-    private DependencyDiagnosticsService CreateService(string? cacheRoot = null) => new(
-        _ => _root,
-        () => "140.0.0.0",
-        (path, _) => Task.FromResult<string?>(Path.GetFileName(path) == "node.exe" ? "v24.15.0" : "0.1.0-rc.6"),
-        new NpxDshCacheLocator(() => cacheRoot ?? Path.Combine(_root, "empty-cache")));
+    private DependencyDiagnosticsService CreateService(string? cacheRoot = null)
+    {
+        var pathProvider = new EnvironmentPathProvider((_, _) => _root);
+        IPrivateDshInstallationStore privateStore = new PrivateDshInstallationStore(
+            () => Path.Combine(_root, "private-store"));
+        var discovery = new DshCandidateDiscoveryService(
+            pathProvider,
+            privateStore,
+            new NpxDshCacheLocator(() => cacheRoot ?? Path.Combine(_root, "empty-cache")));
+        return new DependencyDiagnosticsService(
+            getWebView2Version: () => "140.0.0.0",
+            getExecutableVersion: (path, _) => Task.FromResult<string?>(
+                Path.GetFileName(path) == "node.exe" ? "v24.15.0" : "0.1.0-rc.6"),
+            discovery: discovery);
+    }
 
     private void CreateFile(string name) => File.WriteAllText(Path.Combine(_root, name), string.Empty);
 

@@ -46,7 +46,8 @@ public sealed class DeepSeekAccountService(HttpClient httpClient) : IDeepSeekAcc
                 throw MapStatusCode(response.StatusCode);
             }
 
-            await using var content = await response.Content.ReadAsStreamAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            using var content = await response.Content.ReadAsStreamAsync();
             var payload = await JsonSerializer.DeserializeAsync<BalanceResponse>(
                 content,
                 JsonOptions,
@@ -94,7 +95,7 @@ public sealed class DeepSeekAccountService(HttpClient httpClient) : IDeepSeekAcc
         }
 
         return new DeepSeekBalanceInfo(
-            balance.Currency.Trim().ToUpperInvariant(),
+            balance.Currency!.Trim().ToUpperInvariant(),
             ParseAmount(balance.TotalBalance),
             ParseAmount(balance.GrantedBalance),
             ParseAmount(balance.ToppedUpBalance));
@@ -116,7 +117,7 @@ public sealed class DeepSeekAccountService(HttpClient httpClient) : IDeepSeekAcc
             "API Key 无效或无权访问账户信息",
             $"DeepSeek balance request was rejected with HTTP {(int)statusCode}.",
             false),
-        HttpStatusCode.TooManyRequests => CreateException(
+        (HttpStatusCode)429 => CreateException(
             "API-E602",
             "请求过于频繁，请稍后重试",
             "DeepSeek balance request was rate limited.",

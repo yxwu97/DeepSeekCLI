@@ -7,7 +7,6 @@ namespace DeepSeekHarnessDesktop.Services;
 public static class CmdCommandLineBuilder
 {
     private static readonly string[] DshArguments = ["web"];
-    private static readonly string[] NpxArguments = ["-y", DshPackageMetadata.ValidatedPackageSpec, "web"];
 
     public static ProcessStartInfo Build(
         string scriptPath,
@@ -15,14 +14,22 @@ public static class CmdCommandLineBuilder
         string workingDirectory,
         IReadOnlyDictionary<string, string> environment)
     {
-        var fullPath = ValidateScriptPath(scriptPath);
-
         if (!IsAllowedArguments(arguments))
         {
             throw new ArgumentException("Only the built-in DSH command arguments are accepted for .cmd scripts.", nameof(arguments));
         }
 
-        var command = $"\"\"{fullPath}\" {string.Join(' ', arguments)}\"";
+        return BuildControlled(scriptPath, arguments, workingDirectory, environment);
+    }
+
+    internal static ProcessStartInfo BuildControlled(
+        string scriptPath,
+        IReadOnlyList<string> arguments,
+        string workingDirectory,
+        IReadOnlyDictionary<string, string> environment)
+    {
+        var fullPath = ValidateScriptPath(scriptPath);
+        var command = $"\"\"{fullPath}\" {string.Join(" ", arguments)}\"";
         var startInfo = CreateBaseStartInfo(
             Path.Combine(Environment.SystemDirectory, "cmd.exe"),
             workingDirectory,
@@ -51,7 +58,7 @@ public static class CmdCommandLineBuilder
         var startInfo = CreateBaseStartInfo(executablePath, workingDirectory, environment);
         foreach (var argument in arguments)
         {
-            startInfo.ArgumentList.Add(argument);
+            startInfo.AddArgument(argument);
         }
 
         return startInfo;
@@ -71,15 +78,15 @@ public static class CmdCommandLineBuilder
             RedirectStandardError = true,
             RedirectStandardInput = false,
         };
-        foreach (var (name, value) in environment)
+        foreach (var pair in environment)
         {
-            startInfo.Environment[name] = value;
+            startInfo.EnvironmentVariables[pair.Key] = pair.Value;
         }
 
         return startInfo;
     }
 
-    private static string ValidateScriptPath(string scriptPath)
+    internal static string ValidateScriptPath(string scriptPath)
     {
         var fullPath = Path.GetFullPath(scriptPath);
         if (!File.Exists(fullPath) || !string.Equals(Path.GetExtension(fullPath), ".cmd", StringComparison.OrdinalIgnoreCase))
@@ -97,8 +104,7 @@ public static class CmdCommandLineBuilder
 
     private static bool IsAllowedArguments(IReadOnlyList<string> arguments)
     {
-        if (arguments.SequenceEqual(DshArguments, StringComparer.Ordinal)
-            || arguments.SequenceEqual(NpxArguments, StringComparer.Ordinal))
+        if (arguments.SequenceEqual(DshArguments, StringComparer.Ordinal))
         {
             return true;
         }
@@ -113,7 +119,6 @@ public static class CmdCommandLineBuilder
         }
 
         var prefix = arguments.Take(prefixLength);
-        return prefix.SequenceEqual(DshArguments, StringComparer.Ordinal)
-            || prefix.SequenceEqual(NpxArguments, StringComparer.Ordinal);
+        return prefix.SequenceEqual(DshArguments, StringComparer.Ordinal);
     }
 }

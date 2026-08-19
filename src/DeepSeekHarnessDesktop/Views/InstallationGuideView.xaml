@@ -42,7 +42,7 @@
         <TextBlock Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" Text="{Binding NodeStatusText}" TextWrapping="Wrap" />
       </StackPanel>
       <StackPanel Grid.Column="2" Margin="0,0,16,0">
-        <TextBlock FontWeight="SemiBold" Text="3  npx" />
+        <TextBlock FontWeight="SemiBold" Text="3  npm / npx" />
         <TextBlock Margin="0,4,0,0" Foreground="{StaticResource MutedTextBrush}" Text="{Binding NpxStatusText}" TextWrapping="Wrap" />
       </StackPanel>
       <StackPanel Grid.Column="3">
@@ -51,7 +51,30 @@
       </StackPanel>
     </Grid>
 
-    <Border Grid.Row="3" Grid.RowSpan="2" MinHeight="120" Margin="0,0,0,12" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#FAFAFA" Padding="8">
+    <Expander Grid.Row="3" Margin="0,0,0,12" Header="手动安装与启动">
+      <Border Margin="0,8,0,0" Padding="10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#FAFAFA">
+        <StackPanel>
+          <TextBlock TextWrapping="Wrap" Text="持久安装：在 PowerShell 中执行全局安装命令，完成后返回应用点击“重新检查”。" />
+          <Grid Margin="0,6,0,10">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBox IsReadOnly="True" Padding="8,6" FontFamily="Consolas" Text="{Binding GlobalInstallCommand, Mode=OneWay}" />
+            <Button Grid.Column="1" Command="{Binding CopyGlobalInstallCommand}" Content="复制" ToolTip="复制固定全局安装命令" AutomationProperties.Name="复制全局安装命令" />
+          </Grid>
+          <TextBlock TextWrapping="Wrap" Text="临时启动：执行下方命令并保持终端运行；应用确认身份后只作为外部服务连接，不会停止或重启它。" />
+          <Grid Margin="0,6,0,8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBox IsReadOnly="True" Padding="8,6" FontFamily="Consolas" Text="{Binding ManualStartCommand, Mode=OneWay}" />
+            <Button Grid.Column="1" Command="{Binding CopyManualStartCommand}" Content="复制" ToolTip="复制固定手动 npx 启动命令" AutomationProperties.Name="复制手动启动命令" />
+          </Grid>
+          <WrapPanel>
+            <Button Command="{Binding OpenPowerShellCommand}" Content="打开 PowerShell" ToolTip="只打开工作目录中的 PowerShell，不自动执行命令" AutomationProperties.Name="打开 PowerShell" />
+            <Button Command="{Binding OpenNpmPackageCommand}" Content="npm 包页面" ToolTip="打开 DSH 官方 npm 页面" AutomationProperties.Name="打开 DSH npm 包页面" />
+          </WrapPanel>
+        </StackPanel>
+      </Border>
+    </Expander>
+
+    <Border Grid.Row="4" MinHeight="120" Margin="0,0,0,12" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#FAFAFA" Padding="8">
       <ListBox x:Name="InstallLogList" ItemsSource="{Binding RecentLogs}" BorderThickness="0" Background="Transparent"
                FontFamily="Consolas" FontSize="12" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                ScrollViewer.ScrollChanged="OnLogScrollChanged" AutomationProperties.Name="DSH 安装过程日志">
@@ -66,6 +89,7 @@
     <Grid Grid.Row="5" Margin="0,12,0,0">
       <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
       <WrapPanel>
+        <Button Command="{Binding OpenNodeDownloadCommand}" Content="Node.js 下载" ToolTip="打开 Node.js 官方下载页" AutomationProperties.Name="打开 Node.js 官方下载页" />
         <Button Command="{Binding OpenDocumentationCommand}" Content="DSH 文档" ToolTip="打开 DSH 官方文档" AutomationProperties.Name="打开 DSH 官方文档" />
         <Button Command="{Binding CopyLogsCommand}" Content="复制日志" ToolTip="复制已经脱敏的安装日志" AutomationProperties.Name="复制安装日志" />
       </WrapPanel>
