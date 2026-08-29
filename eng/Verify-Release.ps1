@@ -136,6 +136,21 @@ $lockVersion = $sourceLock['packages']['']['dependencies']['@deepseek-ai/dsh']
 if ($packageVersion -ne $validatedDshVersion -or $lockVersion -ne $validatedDshVersion) {
     throw "DSH runtime resources do not pin validated version $validatedDshVersion."
 }
+$dshLockEntryCount = 0
+foreach ($entry in $sourceLock['packages'].GetEnumerator()) {
+    if ($entry.Key -notmatch '^node_modules/@deepseek-ai/dsh(?:-[^/]+)?$') {
+        continue
+    }
+
+    $dshLockEntryCount++
+    $resolvedVersion = $entry.Value['version']
+    if ($resolvedVersion -ne $validatedDshVersion) {
+        throw "Mixed DSH dependency graph detected at '$($entry.Key)': '$resolvedVersion'."
+    }
+}
+if ($dshLockEntryCount -eq 0) {
+    throw 'No resolved @deepseek-ai/dsh package entries were found in package-lock.json.'
+}
 foreach ($pair in @(
     @($sourcePackagePath, $publishedPackagePath),
     @($sourceLockPath, $publishedLockPath))) {

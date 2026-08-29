@@ -38,6 +38,7 @@
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <TextBlock Text="Desktop 版本" />
             <TextBlock Grid.Column="1" Text="{Binding DesktopVersion}" />
@@ -51,8 +52,10 @@
             <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding NpxPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding NpxPath}" />
             <TextBlock Grid.Row="5" Text="DSH 版本" />
             <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding DshVersion}" />
-            <TextBlock Grid.Row="6" Text="DSH 入口" />
-            <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding DshPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DshPath}" />
+            <TextBlock Grid.Row="6" Text="Desktop 验证 DSH" />
+            <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding ValidatedDshVersion}" />
+            <TextBlock Grid.Row="7" Text="DSH 入口" />
+            <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding DshPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DshPath}" />
           </Grid>
           <Border Grid.Row="1" Margin="0,18,0,0" Padding="12" VerticalAlignment="Top" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#FAFAFA">
             <Grid>

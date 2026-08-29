@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services.Abstractions;
 using DeepSeekHarnessDesktop.Utilities;
+using NuGet.Versioning;
 
 namespace DeepSeekHarnessDesktop.ViewModels;
 
@@ -56,12 +57,13 @@ public sealed partial class AboutViewModel : ObservableObject
     public string? NpxPath => Diagnostics.NpxPath;
     public string? DshPath => Diagnostics.DshPath;
     public string DshVersion => Diagnostics.DshVersion ?? "未检测到";
+    public string ValidatedDshVersion => DshPackageMetadata.ValidatedVersion;
     public string LatestVersion => UpdateResult?.LatestVersion ?? "尚未检查";
     public string UpdateStatus => UpdateResult switch
     {
         null => "仅在点击“检查更新”时访问 npm 官方 registry。",
         { Succeeded: false } result => result.ErrorMessage ?? "检查更新失败。",
-        { Succeeded: true } result => $"npm 当前发布版本为 {result.LatestVersion}；自动启动使用固定版本 {DshPackageMetadata.ValidatedVersion}。",
+        { Succeeded: true } result => FormatUpdateStatus(result.LatestVersion!),
     };
     public string CheckedAt => UpdateResult is null ? "-" : UpdateResult.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss");
 
@@ -120,5 +122,17 @@ public sealed partial class AboutViewModel : ObservableObject
     {
         RefreshDiagnosticsCommand.Cancel();
         CheckUpdateCommand.Cancel();
+    }
+
+    private static string FormatUpdateStatus(string latestText)
+    {
+        var validated = NuGetVersion.Parse(DshPackageMetadata.ValidatedVersion);
+        var latest = NuGetVersion.Parse(latestText);
+        var relation = latest > validated
+            ? "上游版本尚未经过 Desktop 验证，自动启动仍固定使用验证版本。"
+            : latest == validated
+                ? "npm 当前版本与 Desktop 验证版本一致。"
+                : "Desktop 验证版本高于 npm latest，自动启动仍使用验证版本。";
+        return $"npm 当前发布版本为 {latestText}；{relation}";
     }
 }

@@ -54,7 +54,7 @@
     <Expander Grid.Row="3" Margin="0,0,0,12" Header="手动安装与启动">
       <Border Margin="0,8,0,0" Padding="10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#FAFAFA">
         <StackPanel>
-          <TextBlock TextWrapping="Wrap" Text="持久安装：在 PowerShell 中执行全局安装命令，完成后返回应用点击“重新检查”。" />
+          <TextBlock TextWrapping="Wrap" Text="持久安装：先停止当前 DSH，再在 PowerShell 中执行固定全局安装命令；完成后返回应用点击“重新检查”。" />
           <Grid Margin="0,6,0,10">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <TextBox IsReadOnly="True" Padding="8,6" FontFamily="Consolas" Text="{Binding GlobalInstallCommand, Mode=OneWay}" />

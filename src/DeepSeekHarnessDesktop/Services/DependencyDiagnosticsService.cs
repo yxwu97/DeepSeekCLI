@@ -1,5 +1,6 @@
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services.Abstractions;
+using DeepSeekHarnessDesktop.Utilities;
 using Microsoft.Web.WebView2.Core;
 using System.Diagnostics;
 using System.Reflection;
@@ -34,7 +35,7 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
         var errors = new List<HarnessError>();
         var webView = DiagnoseWebView(errors);
         var discovery = await _discovery.DiscoverAsync(cancellationToken);
-        var dsh = await DiagnoseDshAsync(discovery.Candidate, cancellationToken);
+        var dsh = DiagnoseDsh(discovery);
         var node = await DiagnoseNodeAsync(discovery.NodePath, cancellationToken);
         var npm = ToolCheck(discovery.NpmPath, "npm.cmd");
         var npx = ToolCheck(discovery.NpxPath, "npx.cmd");
@@ -42,11 +43,17 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
         if (dsh.Status != DependencyStatus.Available
             && (node.Status != DependencyStatus.Available || npm.Status != DependencyStatus.Available))
         {
-            errors.Add(new HarnessError(
-                "DSH-E101",
-                "未找到可用的 DSH，且 Node.js 或 npm 不可用",
-                $"dsh: {dsh.Status}; node: {node.Status}; npm: {npm.Status}",
-                true));
+            errors.Add(discovery.RejectedGlobalDsh is null
+                ? new HarnessError(
+                    "DSH-E101",
+                    "未找到可用的 DSH，且 Node.js 或 npm 不可用",
+                    $"dsh: {dsh.Status}; node: {node.Status}; npm: {npm.Status}",
+                    true)
+                : new HarnessError(
+                    "DSH-E222",
+                    $"全局 DSH 不是已验证版本 {DshPackageMetadata.ValidatedVersion}",
+                    discovery.RejectedGlobalDsh.Detail,
+                    true));
         }
 
         return new DependencyDiagnosticsResult(
@@ -80,37 +87,25 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
         }
     }
 
-    private async Task<DependencyCheck> DiagnoseDshAsync(
-        DshInstallationCandidate? candidate,
-        CancellationToken cancellationToken)
+    private static DependencyCheck DiagnoseDsh(DshDiscoveryResult discovery)
     {
+        var candidate = discovery.Candidate;
         if (candidate is null)
         {
-            return new DependencyCheck(DependencyStatus.Missing, Detail: "No reusable DSH installation was found.");
+            var detail = discovery.RejectedGlobalDsh is null
+                ? "No reusable DSH installation was found."
+                : $"Global DSH was rejected: {discovery.RejectedGlobalDsh.Detail}";
+            return new DependencyCheck(DependencyStatus.Missing, Detail: detail);
         }
 
-        if (candidate.Source != DshInstallationSource.GlobalPath)
-        {
-            return new DependencyCheck(
-                DependencyStatus.Available,
-                candidate.EntryPointPath,
-                candidate.Version,
-                $"Validated {candidate.Source} installation.");
-        }
-
-        try
-        {
-            var version = await _getExecutableVersion(candidate.ExecutablePath, cancellationToken);
-            return new DependencyCheck(DependencyStatus.Available, candidate.ExecutablePath, version);
-        }
-        catch (ArgumentException exception)
-        {
-            return new DependencyCheck(DependencyStatus.Unusable, candidate.ExecutablePath, Detail: exception.Message);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            return new DependencyCheck(DependencyStatus.Available, candidate.ExecutablePath, Detail: exception.Message);
-        }
+        var path = candidate.Source == DshInstallationSource.GlobalPath
+            ? candidate.ExecutablePath
+            : candidate.EntryPointPath;
+        return new DependencyCheck(
+            DependencyStatus.Available,
+            path,
+            candidate.Version,
+            $"Validated {candidate.Source} installation.");
     }
 
     private static DependencyCheck ToolCheck(string? path, string fileName) => path is null

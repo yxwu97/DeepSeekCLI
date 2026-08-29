@@ -3,7 +3,7 @@ namespace DeepSeekHarnessDesktop.Utilities;
 public static class DshPackageMetadata
 {
     public const string PackageName = "@deepseek-ai/dsh";
-    public const string ValidatedVersion = "0.1.0-rc.6";
+    public const string ValidatedVersion = "0.1.0-rc.7";
     public const string ValidatedPackageSpec = PackageName + "@" + ValidatedVersion;
     public const int DefaultPort = 3080;
 

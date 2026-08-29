@@ -4,8 +4,8 @@
 
 - 项目名称：DeepSeek Harness Desktop
 - 目标平台：Windows 10/11 x64
-- 文档版本：0.8
-- 更新日期：2026-08-19
+- 文档版本：0.9
+- 更新日期：2026-08-21
 - 项目目录：`E:\DeepSeekCLI`
 - 官方文档：<https://deepseek-harness.github.io/deepseek-harness/guide/quickstart>
 - 官方仓库：<https://github.com/deepseek-ai/deepseek-harness>
@@ -43,25 +43,25 @@
 - Web UI 内仍需选择工作区，选择前会话输入不可用。
 - DSH 当前处于 Developer Preview，后续版本可能存在不兼容变更。
 
-Desktop 0.10 发布为 .NET Framework 4.8 轻量宿主，不携带 CoreCLR、Node 或 DSH。应用启动后检查 WebView2、Node.js、npx 和 DSH；优先使用全局 `dsh.cmd`，其次复用当前用户 npx 缓存中校验通过的固定版本，只有两者都不存在时才经用户确认通过 `npx.cmd` 下载并启动。
+Desktop 0.10 发布为 .NET Framework 4.8 轻量宿主，不携带 CoreCLR、Node 或 DSH。应用启动后检查 WebView2、Node.js/npm 和 DSH；Auto 依次选择版本探测通过的全局 `dsh.cmd`、Desktop 私有安装和严格校验的当前用户 npx 缓存。全部缺失时才经用户确认，以发布包内精确 lockfile 执行一次私有安装。
 
 当前开发机环境：
 
 - Node.js：`v24.15.0`
 - npm：`11.12.1`
-- 已验证 DSH：`0.1.0-rc.6`
+- 已验证 DSH：`0.1.0-rc.7`
 - `dsh` 当前不在全局 PATH 中
 - .NET SDK：已安装 9.0 和 10.0
 - .NET Framework 4.8：已安装
 - 默认端口 `3080` 在检查时未被占用
 
-没有全局 DSH 时，客户端使用以下固定命令模板：
+用户手动更新全局 DSH 时使用以下固定命令；Desktop 只复制命令并打开可见 PowerShell：
 
 ```powershell
-npx -y @deepseek-ai/dsh@0.1.0-rc.6 web
+npm install -g @deepseek-ai/dsh@0.1.0-rc.7
 ```
 
-客户端只枚举标准 `_npx` 根的直接子目录，并仅接受固定包名、固定版本、固定 `lib/bin.js` 映射和真实入口文件；缓存 id、包名、版本和入口均不能由用户配置。不自动全局安装软件，也不接受用户包名或任意 Shell 参数。
+全局候选必须在 3 秒内通过受控 `dsh.cmd --version` 探测并精确返回 rc.7。客户端只枚举标准 `_npx` 根的直接子目录，并仅接受固定包名、固定版本、固定 `lib/bin.js` 映射和真实入口文件；缓存 id、包名、版本和入口均不能由用户配置。不自动全局安装软件，也不接受用户包名或任意 Shell 参数。
 
 ### 3.1 本地开发启动
 
@@ -72,7 +72,7 @@ dotnet build DeepSeekHarnessDesktop.sln -c Debug --no-restore -m:1
 dotnet run --project src/DeepSeekHarnessDesktop/DeepSeekHarnessDesktop.csproj --no-build
 ```
 
-开发机必须安装支持 net48 的 .NET SDK、.NET Framework 4.8 targeting pack、WebView2 和 Node.js LTS。普通 build/publish 不执行 npm；只有用户实际选择“准备并启动”且系统没有全局或缓存 DSH 时，运行中的客户端才会在确认后调用固定 npx 模板。
+开发机必须安装支持 net48 的 .NET SDK、.NET Framework 4.8 targeting pack、WebView2 和 Node.js LTS。普通 build/publish 不执行 npm；只有用户实际选择“准备并启动”、没有合格全局/私有/缓存候选且确认下载时，运行中的客户端才会执行锁定的私有 `npm ci --omit=dev`。
 
 ## 4. 技术方案
 
@@ -215,11 +215,11 @@ Failed
 默认启动策略：
 
 1. 若 `Launch.Mode` 为 `Custom`，只接受已存在的原生 `.exe`/`.com`，参数逐项写入 `ArgumentList`。
-2. Auto 优先解析 PATH 中的 `dsh.cmd`，参数固定为 `web [--port <数字>]`。
-3. 没有全局 DSH 时解析 PATH 中的 `npx.cmd`，参数固定为 `-y @deepseek-ai/dsh@0.1.0-rc.6 web [--port <数字>]`。
-4. 进程创建时保持挂起，先加入 `KILL_ON_JOB_CLOSE` Job Object，再恢复主线程。
+2. Auto 对 PATH 中的 `dsh.cmd` 执行有限时 `--version` 探测，仅在精确等于 rc.7 时生成 `web [--port <数字>]`。
+3. 全局候选不合格时，依次检查 rc.7 私有安装和严格 `_npx` 缓存，通过 PATH 中 `node.exe` 直接运行固定 `lib/bin.js`；全部缺失时进入确认后的私有安装。
+4. Owned 进程创建时保持挂起，先加入 `KILL_ON_JOB_CLOSE` Job Object，再恢复主线程；版本探测进程也在取消或超时时回收其创建的进程树。
 
-`.cmd` 只能经过 `CmdCommandLineBuilder` 的固定模板。工作目录只通过 `ProcessStartInfo.WorkingDirectory` 传递；不扫描 npm cache，也不静默切换固定 DSH 版本。npm `latest` 仍是关于窗口中的只读信息。
+`.cmd` 只能经过 `CmdCommandLineBuilder` 的固定模板。工作目录只通过 `ProcessStartInfo.WorkingDirectory` 传递；缓存发现仅检查标准 `_npx` 直接子目录。npm `latest` 仍是关于窗口中的只读信息，不会自动切换固定 DSH 版本。
 
 ### 7.3 服务就绪检测
 
@@ -535,3 +535,10 @@ npx.cmd -y @deepseek-ai/dsh@0.1.0-rc.6 web --port <1-65535>
 - 默认 loopback 健康 handler 明确 `UseProxy = false`，不会因系统代理误判本机 DSH 不可达；注入测试 `HttpClient` 的构造器保持调用方 handler 语义。
 - 手动全局安装 `npm install -g @deepseek-ai/dsh@0.1.0-rc.6` 和手动外部启动 `npx @deepseek-ai/dsh@0.1.0-rc.6 web` 始终保留。Desktop 只复制命令、打开 PowerShell并重新诊断，不执行或拥有手动进程。
 - Release 仅增加约 367 KiB lockfile，不包含 `node_modules`。真实空缓存验证安装 530 个落盘包约 252 MiB，用时 51 秒；第二次准备 npm 调用为 0，并再次通过 DSH HTTP 双身份标记。
+
+## 21. Desktop 0.10.2 DSH rc.7 固化
+
+- `DshPackageMetadata`、发布 `package.json` 和完整 `package-lock.json` 统一锁定 `@deepseek-ai/dsh@0.1.0-rc.7`。Release 门禁除根版本外，还拒绝任一 `@deepseek-ai/dsh*` 已解析包漂移到其他预发布版本。
+- Auto 在接受 PATH 全局 `dsh.cmd` 前执行 3 秒、4 KiB 输出上限的版本探测，只接受规范化后的精确 rc.7。rc.6、rc.8、非法输出、非零退出或超时均不执行，并继续选择私有/缓存 rc.7。
+- 版本探测复用受控 `.cmd` 转义，创建的进程树由 Job Object 限定；调用方取消继续传播，内部超时返回不可用结果。诊断与启动共用同一候选发现服务，避免显示与实际启动分叉。
+- 安装引导提供固定 `npm install -g @deepseek-ai/dsh@0.1.0-rc.7` 和 `npx @deepseek-ai/dsh@0.1.0-rc.7 web`，只复制文本并打开 PowerShell。关于窗口分开显示实际版本、Desktop 验证版本和 npm latest，latest 高于 rc.7 时仅提示尚未验证。

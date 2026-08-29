@@ -9,15 +9,18 @@ public sealed class DshCandidateDiscoveryService : IDshCandidateDiscoveryService
     private readonly EnvironmentPathProvider _pathProvider;
     private readonly IPrivateDshInstallationStore _privateStore;
     private readonly NpxDshCacheLocator _cacheLocator;
+    private readonly IDshVersionProbe _versionProbe;
 
     public DshCandidateDiscoveryService(
         EnvironmentPathProvider? pathProvider = null,
         IPrivateDshInstallationStore? privateStore = null,
-        NpxDshCacheLocator? cacheLocator = null)
+        NpxDshCacheLocator? cacheLocator = null,
+        IDshVersionProbe? versionProbe = null)
     {
         _pathProvider = pathProvider ?? new EnvironmentPathProvider();
         _privateStore = privateStore ?? new PrivateDshInstallationStore();
         _cacheLocator = cacheLocator ?? new NpxDshCacheLocator();
+        _versionProbe = versionProbe ?? new DshVersionProbe();
     }
 
     public async Task<DshDiscoveryResult> DiscoverAsync(CancellationToken cancellationToken)
@@ -28,19 +31,32 @@ public sealed class DshCandidateDiscoveryService : IDshCandidateDiscoveryService
         var npm = _pathProvider.FindOnPath("npm.cmd");
         var npx = _pathProvider.FindOnPath("npx.cmd");
 
+        DshCandidateRejection? rejectedGlobal = null;
         if (globalDsh is not null)
         {
-            return Result(new DshInstallationCandidate(
-                DshInstallationSource.GlobalPath,
-                globalDsh,
-                null,
-                DshPackageMetadata.ValidatedVersion));
+            var probe = await _versionProbe.ProbeAsync(globalDsh, cancellationToken);
+            if (probe.Succeeded
+                && string.Equals(
+                    probe.Version,
+                    DshPackageMetadata.ValidatedVersion,
+                    StringComparison.Ordinal))
+            {
+                return Result(new DshInstallationCandidate(
+                    DshInstallationSource.GlobalPath,
+                    globalDsh,
+                    null,
+                    probe.Version!));
+            }
+
+            rejectedGlobal = new DshCandidateRejection(
+                probe.Version,
+                probe.Detail ?? $"Global DSH version must be {DshPackageMetadata.ValidatedVersion}.");
         }
 
         var privateDsh = await _privateStore.FindActiveAsync(node, cancellationToken);
         if (privateDsh is not null)
         {
-            return Result(privateDsh);
+            return Result(privateDsh, rejectedGlobal);
         }
 
         var cachedDsh = await _cacheLocator.FindAsync(node, cancellationToken);
@@ -50,9 +66,11 @@ public sealed class DshCandidateDiscoveryService : IDshCandidateDiscoveryService
                 DshInstallationSource.NpxCache,
                 cachedDsh.NodePath,
                 cachedDsh.EntryPointPath,
-                cachedDsh.Version));
+                cachedDsh.Version), rejectedGlobal);
 
-        DshDiscoveryResult Result(DshInstallationCandidate? candidate) =>
-            new(candidate, node, npm, npx);
+        DshDiscoveryResult Result(
+            DshInstallationCandidate? candidate,
+            DshCandidateRejection? rejection = null) =>
+            new(candidate, node, npm, npx, rejection);
     }
 }

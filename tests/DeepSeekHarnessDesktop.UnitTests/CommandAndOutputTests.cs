@@ -22,9 +22,7 @@ public sealed class CommandAndOutputTests : IDisposable
         CreateFile("npx.cmd");
         var cacheRoot = Path.Combine(_temporaryDirectory, "cache", "_npx");
         CreateCachedDsh(cacheRoot, "valid", DshPackageMetadata.ValidatedVersion, "lib/bin.js");
-        var resolver = new DshCommandResolver(
-            _ => _temporaryDirectory,
-            new NpxDshCacheLocator(() => cacheRoot));
+        var resolver = CreateResolver(cacheRoot);
 
         var options = await resolver.ResolveAsync(CreateSettings(), CancellationToken.None);
 
@@ -84,7 +82,8 @@ public sealed class CommandAndOutputTests : IDisposable
         var discovery = new DshCandidateDiscoveryService(
             new EnvironmentPathProvider((_, _) => _temporaryDirectory),
             privateStore,
-            new NpxDshCacheLocator(() => cacheRoot));
+            new NpxDshCacheLocator(() => cacheRoot),
+            new FixedVersionProbe(DshPackageMetadata.ValidatedVersion));
 
         var first = await discovery.DiscoverAsync(CancellationToken.None);
         var privateFindsAfterGlobal = privateStore.FindCount;
@@ -97,11 +96,39 @@ public sealed class CommandAndOutputTests : IDisposable
         Assert.Equal(1, privateStore.FindCount);
     }
 
+    [Theory]
+    [InlineData("0.1.0-rc.6")]
+    [InlineData("0.1.0-rc.8")]
+    [InlineData("0.1.0")]
+    public async Task DiscoveryRejectsUnvalidatedGlobalAndFallsBackToValidatedPrivate(string globalVersion)
+    {
+        var node = CreateFile("node.exe");
+        CreateFile("dsh.cmd");
+        var privateEntry = CreateFile("private-bin.js");
+        var privateStore = new FixedPrivateStore(new DshInstallationCandidate(
+            DshInstallationSource.Private,
+            node,
+            privateEntry,
+            DshPackageMetadata.ValidatedVersion,
+            "private-test"));
+        var discovery = new DshCandidateDiscoveryService(
+            new EnvironmentPathProvider((_, _) => _temporaryDirectory),
+            privateStore,
+            new NpxDshCacheLocator(() => Path.Combine(_temporaryDirectory, "empty-cache")),
+            new FixedVersionProbe(globalVersion));
+
+        var result = await discovery.DiscoverAsync(CancellationToken.None);
+
+        Assert.Equal(DshInstallationSource.Private, result.Candidate?.Source);
+        Assert.Equal(globalVersion, result.RejectedGlobalDsh?.ActualVersion);
+        Assert.Equal(1, privateStore.FindCount);
+    }
+
     [Fact]
     public async Task ResolverAddsOnlyValidatedNonDefaultPort()
     {
         CreateFile("dsh.cmd");
-        var resolver = new DshCommandResolver(_ => _temporaryDirectory);
+        var resolver = CreateResolver(Path.Combine(_temporaryDirectory, "empty-cache"));
         var settings = CreateSettings() with { ServiceUri = new Uri("http://127.0.0.1:65535/") };
 
         var options = await resolver.ResolveAsync(settings, CancellationToken.None);
@@ -257,6 +284,16 @@ public sealed class CommandAndOutputTests : IDisposable
         AutoStart = false,
     };
 
+    private DshCommandResolver CreateResolver(string cacheRoot)
+    {
+        var pathProvider = new EnvironmentPathProvider((_, _) => _temporaryDirectory);
+        var discovery = new DshCandidateDiscoveryService(
+            pathProvider,
+            cacheLocator: new NpxDshCacheLocator(() => cacheRoot),
+            versionProbe: new FixedVersionProbe(DshPackageMetadata.ValidatedVersion));
+        return new DshCommandResolver(discovery: discovery);
+    }
+
     private string CreateFile(string name)
     {
         var path = Path.Combine(_temporaryDirectory, name);
@@ -311,5 +348,13 @@ public sealed class CommandAndOutputTests : IDisposable
             CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task CleanupAsync(PrivateDshInstallTransaction transaction) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class FixedVersionProbe(string version) : IDshVersionProbe
+    {
+        public Task<DshVersionProbeResult> ProbeAsync(
+            string executablePath,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new DshVersionProbeResult(true, version));
     }
 }

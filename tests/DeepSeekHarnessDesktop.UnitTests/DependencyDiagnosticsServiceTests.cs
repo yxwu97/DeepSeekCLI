@@ -1,6 +1,7 @@
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services;
 using DeepSeekHarnessDesktop.Services.Abstractions;
+using DeepSeekHarnessDesktop.Utilities;
 using System.Text.Json;
 
 namespace DeepSeekHarnessDesktop.UnitTests;
@@ -52,13 +53,13 @@ public sealed class DependencyDiagnosticsServiceTests : IDisposable
     {
         CreateFile("node.exe");
         var cacheRoot = Path.Combine(_root, "cache", "_npx");
-        var entryPoint = CreateCachedDsh(cacheRoot, "valid", "0.1.0-rc.6", "lib/bin.js");
+        var entryPoint = CreateCachedDsh(cacheRoot, "valid", DshPackageMetadata.ValidatedVersion, "lib/bin.js");
 
         var result = await CreateService(cacheRoot).DiagnoseAsync(CancellationToken.None);
 
         Assert.Equal(DependencyStatus.Available, result.GlobalDsh.Status);
         Assert.Equal(entryPoint, result.GlobalDsh.Path, ignoreCase: true);
-        Assert.Equal("0.1.0-rc.6", result.GlobalDsh.Version);
+        Assert.Equal(DshPackageMetadata.ValidatedVersion, result.GlobalDsh.Version);
         Assert.Equal(DshInstallationSource.NpxCache, result.DshSource);
         Assert.True(result.HasInstalledDsh);
         Assert.False(result.RequiresDshPreparation);
@@ -73,8 +74,8 @@ public sealed class DependencyDiagnosticsServiceTests : IDisposable
         var node = Path.Combine(_root, "node.exe");
         CreateFile("node.exe");
         var cacheRoot = Path.Combine(_root, "cache", "_npx");
-        CreateCachedDsh(cacheRoot, "wrong-version", "0.1.0-rc.7", "lib/bin.js");
-        CreateCachedDsh(cacheRoot, "wrong-bin", "0.1.0-rc.6", "other.js");
+        CreateCachedDsh(cacheRoot, "wrong-version", "0.1.0-rc.8", "lib/bin.js");
+        CreateCachedDsh(cacheRoot, "wrong-bin", DshPackageMetadata.ValidatedVersion, "other.js");
         var locator = new NpxDshCacheLocator(() => cacheRoot);
 
         var result = await locator.FindAsync(node, CancellationToken.None);
@@ -93,7 +94,23 @@ public sealed class DependencyDiagnosticsServiceTests : IDisposable
         Assert.Contains(result.Errors, error => error.Code == "DSH-E101");
     }
 
-    private DependencyDiagnosticsService CreateService(string? cacheRoot = null)
+    [Fact]
+    public async Task RejectedGlobalWithoutPreparationReturnsVersionMismatchError()
+    {
+        CreateFile("dsh.cmd");
+        CreateFile("node.exe");
+
+        var result = await CreateService(globalVersion: "0.1.0-rc.8")
+            .DiagnoseAsync(CancellationToken.None);
+
+        var error = Assert.Single(result.Errors, error => error.Code == "DSH-E222");
+        Assert.Contains(DshPackageMetadata.ValidatedVersion, error.UserMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.Errors, error => error.Code == "DSH-E101");
+    }
+
+    private DependencyDiagnosticsService CreateService(
+        string? cacheRoot = null,
+        string? globalVersion = null)
     {
         var pathProvider = new EnvironmentPathProvider((_, _) => _root);
         IPrivateDshInstallationStore privateStore = new PrivateDshInstallationStore(
@@ -101,11 +118,12 @@ public sealed class DependencyDiagnosticsServiceTests : IDisposable
         var discovery = new DshCandidateDiscoveryService(
             pathProvider,
             privateStore,
-            new NpxDshCacheLocator(() => cacheRoot ?? Path.Combine(_root, "empty-cache")));
+            new NpxDshCacheLocator(() => cacheRoot ?? Path.Combine(_root, "empty-cache")),
+            new FixedVersionProbe(globalVersion ?? DshPackageMetadata.ValidatedVersion));
         return new DependencyDiagnosticsService(
             getWebView2Version: () => "140.0.0.0",
             getExecutableVersion: (path, _) => Task.FromResult<string?>(
-                Path.GetFileName(path) == "node.exe" ? "v24.15.0" : "0.1.0-rc.6"),
+                Path.GetFileName(path) == "node.exe" ? "v24.15.0" : DshPackageMetadata.ValidatedVersion),
             discovery: discovery);
     }
 
@@ -133,4 +151,12 @@ public sealed class DependencyDiagnosticsServiceTests : IDisposable
     }
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
+
+    private sealed class FixedVersionProbe(string version) : IDshVersionProbe
+    {
+        public Task<DshVersionProbeResult> ProbeAsync(
+            string executablePath,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new DshVersionProbeResult(true, version));
+    }
 }

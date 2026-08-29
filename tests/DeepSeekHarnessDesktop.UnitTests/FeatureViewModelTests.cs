@@ -1,6 +1,7 @@
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services;
 using DeepSeekHarnessDesktop.Services.Abstractions;
+using DeepSeekHarnessDesktop.Utilities;
 using DeepSeekHarnessDesktop.ViewModels;
 
 namespace DeepSeekHarnessDesktop.UnitTests;
@@ -74,9 +75,9 @@ public sealed class FeatureViewModelTests
             terminalLauncher: terminal);
 
         viewModel.CopyGlobalInstallCommand.Execute(null);
-        Assert.Equal("npm install -g @deepseek-ai/dsh@0.1.0-rc.6", clipboard.Text);
+        Assert.Equal($"npm install -g {DshPackageMetadata.ValidatedPackageSpec}", clipboard.Text);
         viewModel.CopyManualStartCommand.Execute(null);
-        Assert.Equal("npx @deepseek-ai/dsh@0.1.0-rc.6 web", clipboard.Text);
+        Assert.Equal($"npx {DshPackageMetadata.ValidatedPackageSpec} web", clipboard.Text);
         viewModel.OpenPowerShellCommand.Execute(null);
 
         Assert.Equal(settings.WorkspacePath, terminal.WorkingDirectory);
@@ -172,18 +173,21 @@ public sealed class FeatureViewModelTests
     [Fact]
     public async Task AboutUpdateCheckOnlyUpdatesPresentationResult()
     {
-        var expected = new DshUpdateCheckResult("0.1.0", DateTimeOffset.Now);
+        var diagnostics = LaunchableDiagnostics();
+        var expected = new DshUpdateCheckResult("0.1.0-rc.8", DateTimeOffset.Now);
         var viewModel = new AboutViewModel(
-            new FakeDiagnosticsService(LaunchableDiagnostics()),
+            new FakeDiagnosticsService(diagnostics),
             new FakeReleaseService(expected),
             new FakeLinkLauncher(),
             new FakeVersionHistoryProvider(),
-            LaunchableDiagnostics());
+            diagnostics);
 
         await viewModel.CheckUpdateCommand.ExecuteAsync(null);
 
         Assert.Same(expected, viewModel.UpdateResult);
-        Assert.Contains("固定版本 0.1.0-rc.6", viewModel.UpdateStatus, StringComparison.Ordinal);
+        Assert.Contains("尚未经过 Desktop 验证", viewModel.UpdateStatus, StringComparison.Ordinal);
+        Assert.Equal(DshPackageMetadata.ValidatedVersion, viewModel.ValidatedDshVersion);
+        Assert.Same(diagnostics, viewModel.Diagnostics);
     }
 
     [Fact]
@@ -231,7 +235,7 @@ public sealed class FeatureViewModelTests
             new FakeConfirmation(true),
             settings);
 
-        Assert.Contains("0.1.0-rc.6", viewModel.DshStatusText, StringComparison.Ordinal);
+        Assert.Contains(DshPackageMetadata.ValidatedVersion, viewModel.DshStatusText, StringComparison.Ordinal);
         Assert.Contains("v24", viewModel.NodeStatusText, StringComparison.Ordinal);
         Assert.EndsWith("/ 10:00", viewModel.ElapsedText, StringComparison.Ordinal);
     }
@@ -320,7 +324,7 @@ public sealed class FeatureViewModelTests
         "0.9.2",
         "8.0.0",
         new DependencyCheck(DependencyStatus.Available, Version: "140.0"),
-        new DependencyCheck(DependencyStatus.Available, Path: "cached-bin.js", Version: "0.1.0-rc.6"),
+        new DependencyCheck(DependencyStatus.Available, Path: "cached-bin.js", Version: DshPackageMetadata.ValidatedVersion),
         new DependencyCheck(DependencyStatus.Available, Path: "node.exe", Version: "v24"),
         new DependencyCheck(DependencyStatus.Available, Path: "npx.cmd"),
         []);

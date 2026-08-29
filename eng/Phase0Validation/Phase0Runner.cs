@@ -45,11 +45,7 @@ internal static class Phase0Runner
 
     public static async Task<int> RunPrivateDshSmokeAsync()
     {
-        var root = Path.Combine(
-            Path.GetTempPath(),
-            "DeepSeekHarnessDesktop",
-            "private-smoke",
-            Guid.NewGuid().ToString("N"));
+        var root = CreatePrivateSmokeRoot();
         var workspace = Path.Combine(root, "workspace");
         var privateRoot = Path.Combine(root, "private");
         var npmCache = Path.Combine(root, "npm-cache");
@@ -57,10 +53,13 @@ internal static class Phase0Runner
         Directory.CreateDirectory(workspace);
         var environment = SetTemporaryEnvironment(new Dictionary<string, string>
         {
-            ["npm_config_cache"] = npmCache,
-            ["npm_config_registry"] = "https://registry.npmjs.org/",
-            ["npm_config_audit"] = "false",
-            ["npm_config_fund"] = "false",
+            ["NPM_CONFIG_CACHE"] = npmCache,
+            ["NPM_CONFIG_REGISTRY"] = "https://registry.npmjs.org/",
+            ["NPM_CONFIG_REPLACE_REGISTRY_HOST"] = "never",
+            ["NPM_CONFIG_AUDIT"] = "false",
+            ["NPM_CONFIG_FUND"] = "false",
+            ["NPM_CONFIG_OFFLINE"] = "false",
+            ["NPM_CONFIG_PREFER_OFFLINE"] = "false",
             ["DSH_HOME"] = dshHome,
         });
 
@@ -290,8 +289,7 @@ internal static class Phase0Runner
     {
         var expectedParent = Path.GetFullPath(Path.Combine(
             Path.GetTempPath(),
-            "DeepSeekHarnessDesktop",
-            "private-smoke"));
+            "D"));
         if (!string.Equals(
             Path.GetFullPath(Path.GetDirectoryName(root)!),
             expectedParent,
@@ -328,6 +326,26 @@ internal static class Phase0Runner
         }
         Console.Error.WriteLine(
             $"WARN: validation root cleanup did not complete: {lastError?.GetType().Name ?? "unknown"}.");
+    }
+
+    private static string CreatePrivateSmokeRoot()
+    {
+        var parent = Path.Combine(Path.GetTempPath(), "D");
+        Directory.CreateDirectory(parent);
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            var name = Guid.NewGuid().ToString("N").Substring(0, 6);
+            var candidate = Path.Combine(parent, name);
+            if (Directory.Exists(candidate))
+            {
+                continue;
+            }
+
+            Directory.CreateDirectory(candidate);
+            return candidate;
+        }
+
+        throw new IOException("Unable to allocate a unique private DSH smoke directory.");
     }
 
     private static long GetDirectorySize(string root)

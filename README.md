@@ -16,9 +16,9 @@ DeepSeek Harness Desktop 是面向 Windows 10/11 x64 的轻量 WPF 宿主。它�
 
 ## 主要能力
 
-- 优先复用 PATH 中手动/全局安装的 `dsh.cmd`，其次复用 Desktop 私有安装，再复用严格校验的当前用户 npx 缓存。
+- Auto 仅接受精确 `@deepseek-ai/dsh@0.1.0-rc.7`：先验证 PATH 全局 `dsh.cmd --version`，再复用 Desktop 私有安装和严格校验的当前用户 npx 缓存。
 - 只有没有可复用 DSH 时，才经用户确认用精确 lockfile 执行一次 `npm ci --omit=dev`；后续直接运行私有固定入口，不再下载。
-- 保留固定全局安装和手动 npx 启动入口；Desktop 只复制命令并打开 PowerShell，不自动执行。
+- 保留固定 rc.7 全局安装和手动 npx 启动入口；Desktop 只复制命令并打开 PowerShell，不自动执行，npm `latest` 也不会改变启动版本。
 - 只停止或重启本程序创建的 Owned DSH 进程树；外部 DSH 仅连接。
 - 使用 Job Object、串行生命周期和 generation 校验处理退出、取消和重启竞态。
 - 只接受 loopback DSH 服务并验证 HTTP 身份，Code WebView2 保持同源。
@@ -38,6 +38,13 @@ DeepSeek Harness Desktop 是面向 Windows 10/11 x64 的轻量 WPF 宿主。它�
 dotnet restore DeepSeekHarnessDesktop.sln
 dotnet build DeepSeekHarnessDesktop.sln -c Debug --no-restore -m:1
 dotnet run --project src/DeepSeekHarnessDesktop/DeepSeekHarnessDesktop.csproj --no-build
+```
+
+清理 `output` 中可再生成的缓存、验证和旧发布内容：
+
+```powershell
+.\eng\Clean-Output.bat --dry-run
+.\eng\Clean-Output.bat
 ```
 
 本项目是 DeepSeek Harness 的独立桌面宿主，不代表 DeepSeek 官方产品。

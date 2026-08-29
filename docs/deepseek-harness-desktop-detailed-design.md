@@ -1456,3 +1456,23 @@ Release 携带 `dsh-runtime/package.json` 和精确 `package-lock.json`，不携
 ### 34.4 健康与发布门禁
 
 默认 `HarnessHealthMonitor` 的 loopback `HttpClientHandler` 设置 `UseProxy = false`、`AllowAutoRedirect = false` 和 `UseCookies = false`；每跳 loopback 与 DSH 身份规则不变。Release 门禁校验代码固定版本与 package/lock 根版本一致、源/发布资源 SHA-256 一致、ZIP 不含 `node_modules`，并默认执行真实空缓存私有安装、HTTP 身份和二次免下载 smoke。真实 2026-08-19 样本安装 530 个落盘包约 252 MiB，首次 51 秒，第二次 npm 调用为 0。
+
+## 35. Desktop 0.10.2 DSH rc.7 固化设计
+
+### 35.1 统一版本与锁图
+
+唯一支持版本更新为 `@deepseek-ai/dsh@0.1.0-rc.7`。可信 package/lock 资源来自 2026-08-18 前的 npm 发布边界，避免 rc.7 范围依赖动态解析到 rc.8；根依赖、顶层 DSH 和所有 `node_modules/@deepseek-ai/dsh*` 已解析条目必须同为 rc.7。发布门禁机械检查完整 DSH 锁图，不接受只固定顶层包的混合依赖树。
+
+### 35.2 全局候选门禁
+
+`DshCandidateDiscoveryService` 使用 `IDshVersionProbe` 对 PATH 中 `dsh.cmd` 执行固定 `--version`。探测限制为 3 秒和 stdout/stderr 各 4 KiB，只接受单行可规范化 SemVer；候选还必须精确等于 `DshPackageMetadata.ValidatedVersion`。探测失败或版本不符时记录最小拒绝原因，继续查找私有和缓存 rc.7，不让错误全局安装遮挡有效候选。
+
+探测进程及其子进程加入 `KILL_ON_JOB_CLOSE` Job Object。调用方取消时先回收本次创建的进程树再传播取消；内部超时回收后返回不可用，不扫描 PID、端口或影响外部 DSH。resolver 与 diagnostics 使用同一个 discovery 实例，因此重新检查和启动执行相同版本规则。
+
+### 35.3 手动更新与展示
+
+用户通过可见 PowerShell 手动执行固定 rc.7 全局安装命令，更新前先停止 Owned DSH，完成后在 Desktop 重新检查。应用不自动执行 npm、不提升权限、不接受任意版本输入。关于窗口分别展示实际候选版本、Desktop 验证版本和 npm latest；latest 只读，rc.8 等后续版本不会修改 lockfile、私有 active 状态或启动参数。
+
+### 35.4 错误与验证
+
+全局版本不符但存在有效私有/缓存 rc.7 时正常回退；没有候选且 Node/npm 不可用于私有安装时返回 `DSH-E222`。单元测试覆盖 rc.6/rc.8/稳定版回退、输出边界、取消和超时回收；真实发布验证显式使用 lockfile 的官方 registry host，并隔离用户 `.npmrc` 的 offline/镜像替换配置，继续执行空 cache 私有安装、HTTP 双身份、停止回收和第二次零 npm 复用。

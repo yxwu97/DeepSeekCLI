@@ -67,10 +67,12 @@ public partial class App : System.Windows.Application
         var cacheLocator = new NpxDshCacheLocator();
         var pathProvider = new EnvironmentPathProvider();
         var privateStore = new PrivateDshInstallationStore();
+        var versionProbe = new DshVersionProbe();
         var discoveryService = new DshCandidateDiscoveryService(
             pathProvider,
             privateStore,
-            cacheLocator);
+            cacheLocator,
+            versionProbe);
         var diagnosticsService = new DependencyDiagnosticsService(discovery: discoveryService);
         var diagnostics = CreateInitialDiagnostics();
         _services = new ServiceCollection()
@@ -80,6 +82,7 @@ public partial class App : System.Windows.Application
             .AddSingleton<IDependencyDiagnosticsService>(diagnosticsService)
             .AddSingleton(pathProvider)
             .AddSingleton(cacheLocator)
+            .AddSingleton<IDshVersionProbe>(versionProbe)
             .AddSingleton(privateStore)
             .AddSingleton<IPrivateDshInstallationStore>(privateStore)
             .AddSingleton<IDshCandidateDiscoveryService>(discoveryService)
