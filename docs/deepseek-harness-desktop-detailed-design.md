@@ -327,7 +327,7 @@ public interface IDshCommandResolver
 解析顺序：
 
 1. `Custom` 校验并使用用户配置的原生 `.exe`/`.com`。
-2. Auto 优先查找 PATH 中的 `dsh.cmd`，生成固定 `web [--port <数字>]` 参数。
+2. Auto 优先查找 PATH 中的 `dsh.cmd`，生成固定 `web --no-open [--port <数字>]` 参数，避免 DSH 自动唤起系统默认浏览器。
 3. 未找到全局 DSH 时查找 `npx.cmd`，生成固定 `-y @deepseek-ai/dsh@0.1.0-rc.6 web [--port <数字>]` 参数。
 
 Auto 不扫描 npm `_npx` 缓存，不接受用户包名或 Shell 参数；`.cmd` 只通过受控的 `CmdCommandLineBuilder` 执行。
@@ -1476,3 +1476,19 @@ Release 携带 `dsh-runtime/package.json` 和精确 `package-lock.json`，不携
 ### 35.4 错误与验证
 
 全局版本不符但存在有效私有/缓存 rc.7 时正常回退；没有候选且 Node/npm 不可用于私有安装时返回 `DSH-E222`。单元测试覆盖 rc.6/rc.8/稳定版回退、输出边界、取消和超时回收；真实发布验证显式使用 lockfile 的官方 registry host，并隔离用户 `.npmrc` 的 offline/镜像替换配置，继续执行空 cache 私有安装、HTTP 双身份、停止回收和第二次零 npm 复用。
+
+## 36. Desktop 0.11.0 受信运行时与签名目录设计
+
+`DshRuntimeDescriptor` 固定精确版本、运行协议、最低 Desktop、Node 范围、来源和证据 hash。`DshTrustedVersionPolicy` 以主/备份 JSON 原子保存当前选择；只检查目录不写选择状态，只有新私有版本通过完整提交后才允许切换。候选 discovery、Store、npx cache、诊断和 UI 必须读取共享单例的同一次版本快照。
+
+Bootstrap rc.2 lockfile 将循环 peer 提升为精确根依赖，所有 DSH 系列顶层 entry 同为 rc.2。`package.json` 另以精确 override 将 `use-sync-external-store@1.2.0` 只接受 React 16-18 的旧 peer 声明绑定到根 `react@19.2.8`；不使用 `--force` 或 `--legacy-peer-deps`，正式 lockfile 字节与 hash 不变。`NpmInstallRunner` 删除全部 `NPM_CONFIG_*`、Token、代理和 script-shell 影响，使用唯一空配置、官方 registry、共享私有 cache 与 `--ignore-scripts`。npm 进程仍挂入 Job Object；cache/config 不进入版本 staging，失败不会改变 active。
+
+catalog schema v1 只允许版本、兼容性和 package/lock 资产数据，不允许命令、入口、工作目录、环境或 Shell。客户端先对原始字节执行 RSA-3072/SHA-256 PKCS#1 detached 验签，再以最大 256 KiB、深度 8、64 entries 的 reader 解析；重复字段、未知字段、未知 key、非固定 HTTPS host、错误长度/hash 和篡改统一 `DSH-E226` fail closed。生产公钥及固定发布端点必须在正式 catalog 上线前冻结，私钥不得进入仓库或发布包。
+
+`DshCatalogClient` 使用关闭自动重定向和 Cookie 的独立请求客户端。catalog/signature 响应必须仍为原始固定 URI；验签成功后，客户端在单操作门内比较最高已接受 sequence。同 sequence 仅接受相同 catalog SHA-256，更低 sequence 或碰撞立即拒绝。缓存目录以 `sequence-hash前缀` 命名，先写原始 catalog/signature，再以主/备份 JSON 原子提交接受指针；仅 HTTP/超时失败允许重新验签缓存，远端签名/schema/sequence 错误不得回退掩盖。
+
+`DshUpdateCheckService` 并发读取 npm latest 与 catalog，随后按当前选择版本、runtime protocol、最低 Desktop、严格 Node 半开范围和 revoked 状态筛选最高兼容目标。npm latest 不进入 descriptor、URL、文件名、npm 参数或 Store 事务，只用于 `waitingForValidation` 展示。
+
+`DshCatalogAssetDownloader` 拒绝重定向和非固定 HTTPS host，在唯一受控目录流式限制精确 bytes 并计算 SHA-256。`DshCatalogUpdateInstaller` 把验签条目转换的 descriptor 与两份已验证资产传给 Store，按 download、npm ci、graph commit、真实 smoke、active、selected 顺序执行；active/selected 提交使用不可取消令牌。若 active 已切换而 selected 写入失败，旧 selected 会拒绝新 primary active，并可从 active backup 恢复旧版本。`DshRuntimeUpdateCoordinator` 只停止 Owned，安装失败时尝试重新启动旧选择；External 直接拒绝且 installer 零调用。
+
+公开 schema 与 `eng/dsh-catalog/New-DshCatalog.ps1` 属于独立发布面。脚本只接受当前用户证书存储中的私钥证书或仓库外 PFX，拒绝仓库内私钥路径，验证旧签名与 sequence 单调后生成无 BOM catalog 和 raw signature。当前 0.11.0 源码未获得生产公钥和冻结端点，运行时注册 `DshCatalogNotConfiguredService` 返回 `DSH-E226`；该状态不得被描述为生产 N+1 已上线。

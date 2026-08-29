@@ -52,7 +52,7 @@
             <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding NpxPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding NpxPath}" />
             <TextBlock Grid.Row="5" Text="DSH 版本" />
             <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding DshVersion}" />
-            <TextBlock Grid.Row="6" Text="Desktop 验证 DSH" />
+            <TextBlock Grid.Row="6" Text="当前选择版本" />
             <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding ValidatedDshVersion}" />
             <TextBlock Grid.Row="7" Text="DSH 入口" />
             <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding DshPath, TargetNullValue=未检测到}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DshPath}" />
@@ -60,12 +60,15 @@
           <Border Grid.Row="1" Margin="0,18,0,0" Padding="12" VerticalAlignment="Top" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#FAFAFA">
             <Grid>
               <Grid.ColumnDefinitions><ColumnDefinition Width="140" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-              <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+              <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
               <TextBlock Text="npm latest" />
               <TextBlock Grid.Column="1" Text="{Binding LatestVersion}" />
-              <TextBlock Grid.Row="1" Text="检查时间" />
-              <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CheckedAt}" />
-              <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Margin="0,8,0,0" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" Text="{Binding UpdateStatus}" />
+              <TextBlock Grid.Row="1" Text="签名目录更新" />
+              <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CatalogUpdateVersion}" />
+              <TextBlock Grid.Row="2" Text="检查时间" />
+              <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding CheckedAt}" />
+              <TextBlock Grid.Row="3" Grid.ColumnSpan="2" Margin="0,8,0,0" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" Text="{Binding UpdateStatus}" />
+              <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Margin="0,8,0,0" TextWrapping="Wrap" Text="{Binding DownloadStatus}" />
             </Grid>
           </Border>
         </Grid>
@@ -121,6 +124,7 @@
         <StackPanel Orientation="Horizontal">
           <Button Command="{Binding RefreshDiagnosticsCommand}" Content="重新诊断" />
           <Button Command="{Binding CheckUpdateCommand}" Content="检查更新" />
+          <Button Command="{Binding DownloadAndUpdateCommand}" Content="下载并更新" />
           <Button Command="{Binding CancelCommand}" Content="取消" />
         </StackPanel>
         <Button Grid.Column="1" Width="76" Content="关闭" IsCancel="True" AutomationProperties.Name="关闭关于窗口" />

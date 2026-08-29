@@ -8,6 +8,25 @@ namespace DeepSeekHarnessDesktop.Services;
 
 public sealed class NpmInstallRunner : INpmInstallRunner
 {
+    private static readonly string[] RemovedNpmEnvironmentVariables =
+    [
+        "NODE_AUTH_TOKEN",
+        "NPM_TOKEN",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "npm_config_proxy",
+        "npm_config_https_proxy",
+        "npm_config_registry",
+        "npm_config_cache",
+        "npm_config_offline",
+        "npm_config_prefer_offline",
+        "npm_config_userconfig",
+        "npm_config_globalconfig",
+        "npm_config_script_shell",
+        "npm_config_ignore_scripts",
+    ];
     public static readonly TimeSpan PreparationTimeout = TimeSpan.FromMinutes(10);
     public static readonly TimeSpan NoProgressTimeout = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan ProgressInterval = TimeSpan.FromSeconds(2);
@@ -38,13 +57,44 @@ public sealed class NpmInstallRunner : INpmInstallRunner
         string workingDirectory,
         CancellationToken cancellationToken)
     {
+        var fullWorkingDirectory = Path.GetFullPath(workingDirectory);
+        var projectConfig = Path.Combine(fullWorkingDirectory, ".npmrc");
+        if (File.Exists(projectConfig))
+        {
+            throw new HarnessException(new HarnessError(
+                "DSH-E223",
+                "DSH 安装资源包含不允许的 npm 配置",
+                "The controlled staging directory contains a project .npmrc.",
+                true));
+        }
+
+        var stagingRoot = Directory.GetParent(fullWorkingDirectory)?.FullName
+            ?? throw new ArgumentException("The npm working directory has no parent.");
+        var privateRoot = Directory.GetParent(stagingRoot)?.FullName
+            ?? throw new ArgumentException("The npm staging root has no parent.");
+        var configurationParent = Path.Combine(privateRoot, "npm-config");
+        Directory.CreateDirectory(configurationParent);
+        var configurationRoot = Path.Combine(
+            configurationParent,
+            Path.GetFileName(fullWorkingDirectory));
+        Directory.CreateDirectory(configurationRoot);
+        var userConfig = Path.Combine(configurationRoot, "user.npmrc");
+        var globalConfig = Path.Combine(configurationRoot, "global.npmrc");
+        await EnsureEmptyConfigAsync(userConfig, cancellationToken);
+        await EnsureEmptyConfigAsync(globalConfig, cancellationToken);
+        var cacheRoot = Path.Combine(privateRoot, "npm-cache");
+        Directory.CreateDirectory(cacheRoot);
+
         var options = new DshLaunchOptions
         {
             ExecutablePath = npmPath,
-            Arguments = ["ci", "--omit=dev"],
-            WorkingDirectory = Path.GetFullPath(workingDirectory),
+            Arguments = NpmCommandLineBuilder.CreateLockedInstallArgumentsForWorkingDirectory(
+                fullWorkingDirectory),
+            WorkingDirectory = fullWorkingDirectory,
             FallbackUri = DshPackageMetadata.DefaultServiceUri,
             Environment = new Dictionary<string, string>(),
+            RemovedEnvironmentVariables = RemovedNpmEnvironmentVariables,
+            RemovedEnvironmentPrefixes = ["NPM_CONFIG_"],
         };
         using var job = new WindowsJobObject();
         SuspendedProcessLaunch? launch = null;
@@ -109,6 +159,7 @@ public sealed class NpmInstallRunner : INpmInstallRunner
             {
                 await CleanupLaunchAsync(launch, job, stdoutTask, stderrTask);
             }
+            CleanupConfiguration(configurationParent, configurationRoot);
         }
 
         async Task ReadOutputAsync(
@@ -135,6 +186,47 @@ public sealed class NpmInstallRunner : INpmInstallRunner
                 _recentLogs?.Add(new ProcessOutputLine(DateTimeOffset.Now, source, normalized));
             }
         }
+    }
+
+    private static async Task EnsureEmptyConfigAsync(string path, CancellationToken cancellationToken)
+    {
+        using (var stream = new FileStream(
+            path,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            4096,
+            FileOptions.Asynchronous))
+        {
+            await stream.FlushAsync(cancellationToken);
+        }
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new HarnessException(new HarnessError(
+                "DSH-E223",
+                "DSH 安装配置目录无效",
+                "A controlled npm configuration file is a reparse point.",
+                true));
+        }
+    }
+
+    private static void CleanupConfiguration(string parent, string path)
+    {
+        var expectedParent = PathCompatibility.TrimEndingDirectorySeparator(parent);
+        var actualParent = PathCompatibility.TrimEndingDirectorySeparator(
+            Path.GetDirectoryName(Path.GetFullPath(path))
+                ?? throw new ArgumentException("The npm configuration path has no parent."));
+        if (!string.Equals(expectedParent, actualParent, StringComparison.OrdinalIgnoreCase)
+            || !Directory.Exists(path))
+        {
+            return;
+        }
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new HarnessException(DshUpdateErrorMapper.ResourceMismatch(
+                "The controlled npm configuration directory became a reparse point."));
+        }
+        Directory.Delete(path, true);
     }
 
     private async Task DrainOutputAfterExitAsync(Task stdoutTask, Task stderrTask)

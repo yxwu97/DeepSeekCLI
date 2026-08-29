@@ -48,7 +48,7 @@ public sealed class DshPreparationServiceTests
         var exception = await Assert.ThrowsAsync<HarnessException>(
             () => service.PrepareAsync(Settings(), CancellationToken.None));
 
-        Assert.Equal("DSH-E201", exception.Error.Code);
+        Assert.Equal("DSH-E225", exception.Error.Code);
         Assert.DoesNotContain("activate", calls);
         Assert.Equal("cleanup", calls[calls.Count - 1]);
     }
@@ -112,6 +112,12 @@ public sealed class DshPreparationServiceTests
                 "private-test",
                 new string('0', 64)));
         }
+
+        public Task<PrivateDshInstallTransaction> CreateTransactionAsync(
+            DshRuntimeDescriptor descriptor,
+            string packagePath,
+            string lockPath,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<DshInstallationCandidate> CommitVersionAsync(
             PrivateDshInstallTransaction transaction,

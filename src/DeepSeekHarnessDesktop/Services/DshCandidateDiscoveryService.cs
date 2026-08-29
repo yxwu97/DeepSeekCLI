@@ -10,22 +10,26 @@ public sealed class DshCandidateDiscoveryService : IDshCandidateDiscoveryService
     private readonly IPrivateDshInstallationStore _privateStore;
     private readonly NpxDshCacheLocator _cacheLocator;
     private readonly IDshVersionProbe _versionProbe;
+    private readonly IDshTrustedVersionPolicy _trustedVersions;
 
     public DshCandidateDiscoveryService(
         EnvironmentPathProvider? pathProvider = null,
         IPrivateDshInstallationStore? privateStore = null,
         NpxDshCacheLocator? cacheLocator = null,
-        IDshVersionProbe? versionProbe = null)
+        IDshVersionProbe? versionProbe = null,
+        IDshTrustedVersionPolicy? trustedVersions = null)
     {
         _pathProvider = pathProvider ?? new EnvironmentPathProvider();
         _privateStore = privateStore ?? new PrivateDshInstallationStore();
         _cacheLocator = cacheLocator ?? new NpxDshCacheLocator();
         _versionProbe = versionProbe ?? new DshVersionProbe();
+        _trustedVersions = trustedVersions ?? new DshTrustedVersionPolicy();
     }
 
     public async Task<DshDiscoveryResult> DiscoverAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var expectedVersion = _trustedVersions.Current.Version;
         var globalDsh = _pathProvider.FindOnPath("dsh.cmd");
         var node = _pathProvider.FindOnPath("node.exe");
         var npm = _pathProvider.FindOnPath("npm.cmd");
@@ -38,7 +42,7 @@ public sealed class DshCandidateDiscoveryService : IDshCandidateDiscoveryService
             if (probe.Succeeded
                 && string.Equals(
                     probe.Version,
-                    DshPackageMetadata.ValidatedVersion,
+                    expectedVersion,
                     StringComparison.Ordinal))
             {
                 return Result(new DshInstallationCandidate(
@@ -50,7 +54,7 @@ public sealed class DshCandidateDiscoveryService : IDshCandidateDiscoveryService
 
             rejectedGlobal = new DshCandidateRejection(
                 probe.Version,
-                probe.Detail ?? $"Global DSH version must be {DshPackageMetadata.ValidatedVersion}.");
+                probe.Detail ?? $"Global DSH version must be {expectedVersion}.");
         }
 
         var privateDsh = await _privateStore.FindActiveAsync(node, cancellationToken);

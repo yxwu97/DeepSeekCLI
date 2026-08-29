@@ -71,7 +71,7 @@ DeepSeek Harness Desktop 是面向 Windows 10/11 x64 的原生桌面宿主。应
 - net48 原生进程参数必须逐项经过仓库兼容层的 Windows 命令行转义；`.cmd` 仅通过 `CmdCommandLineBuilder` 的受控路径执行，不允许接收未经验证的用户 Shell 文本。
 - 自定义启动模式只接受已存在的 `.exe` 或 `.com`；不要在未补齐威胁模型和测试前放宽到 `.cmd`、`.bat` 或任意命令行。
 - Auto 启动依次使用 PATH 中可执行的 `dsh.cmd`、Desktop 已激活私有安装、当前用户 npm `_npx` 缓存中经固定包名/版本/bin 映射校验的 DSH。私有或缓存命中时通过 PATH 中的 `node.exe` 直接执行固定 `lib/bin.js`、`web` 和可选纯数字端口参数，不运行 npm/npx，不访问 registry。
-- 全局 `dsh.cmd` 必须以有限时 `--version` 探测精确匹配 `@deepseek-ai/dsh@0.1.0-rc.7`；版本不符或探测失败时不得执行，并继续查找私有/缓存候选。缓存发现只允许枚举标准 `_npx` 根的直接子目录，不硬编码 cache id，不接受 manifest 提供的任意入口，不执行非精确 rc.7。不自动全局安装 Node.js/DSH，不接受用户提供的 npm 包名或 Shell 参数；确认没有可复用安装后，必须取得用户确认，再用发布包内精确 lockfile 执行一次受控私有 `npm ci --omit=dev`，真实 smoke 通过后才激活。
+- Auto 初始受信版本为 Bootstrap `@deepseek-ai/dsh@0.1.1-rc.2`，后续只能切换到有效签名目录批准且兼容当前运行协议的精确版本；npm `latest` 只读发现，不能直接成为安装目标。全局 `dsh.cmd` 必须以有限时 `--version` 精确匹配当前选择版本；版本不符或探测失败时继续查找私有/缓存候选。缓存发现只允许枚举标准 `_npx` 根的直接子目录，不硬编码 cache id，不接受 manifest 提供的任意入口。不得自动全局安装 Node.js/DSH，也不得接受用户包名、版本、registry 或 Shell 参数；用户确认后只能使用受信 package/lock 执行私有 `npm ci --omit=dev --ignore-scripts`，隔离 `.npmrc` 与危险 npm 环境，真实 smoke 通过后才原子激活。
 - 固定全局安装与手动 npx 启动入口必须保留；Desktop 只复制固定命令并打开可见 PowerShell，不自动执行。缺少 WebView2、Node.js 或 npm 时，安装引导一次只展示当前缺失项并打开官方页面，返回应用后重新检查系统与用户 PATH。
 
 ### 5.4 服务身份与 WebView2

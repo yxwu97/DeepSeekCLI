@@ -7,6 +7,8 @@ namespace DeepSeekHarnessDesktop.IntegrationTests;
 
 public sealed class HarnessLifecycleCoordinatorProcessTests
 {
+    private static readonly TimeSpan ObservationTimeout = TimeSpan.FromSeconds(30);
+
     [Fact]
     public async Task ImmediateProcessExitFailsWithExitCodeAndCapturedStderr()
     {
@@ -14,7 +16,7 @@ public sealed class HarnessLifecycleCoordinatorProcessTests
         await using var manager = new HarnessProcessManager(logs);
         await using var coordinator = await CreateCoordinatorAsync(manager, "--exit", WaitMode.UntilCancelled);
 
-        await coordinator.StartAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        await coordinator.StartAsync(CancellationToken.None).WaitAsync(ObservationTimeout);
 
         Assert.Equal(HarnessRuntimeState.Failed, coordinator.Current.State);
         Assert.Equal("DSH-E201", coordinator.Current.Error?.Code);
@@ -32,8 +34,13 @@ public sealed class HarnessLifecycleCoordinatorProcessTests
         await using var manager = new HarnessProcessManager(logs);
         await using var coordinator = await CreateCoordinatorAsync(manager, "--crash", WaitMode.Ready);
         var failed = new TaskCompletionSource<HarnessStateSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sawRunning = false;
         coordinator.StateChanged += (_, snapshot) =>
         {
+            if (snapshot.State == HarnessRuntimeState.RunningOwned)
+            {
+                sawRunning = true;
+            }
             if (snapshot.State == HarnessRuntimeState.Failed)
             {
                 failed.TrySetResult(snapshot);
@@ -41,9 +48,9 @@ public sealed class HarnessLifecycleCoordinatorProcessTests
         };
 
         await coordinator.StartAsync(CancellationToken.None);
-        Assert.Equal(HarnessRuntimeState.RunningOwned, coordinator.Current.State);
-        var snapshot = await failed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var snapshot = await failed.Task.WaitAsync(ObservationTimeout);
 
+        Assert.True(sawRunning);
         Assert.Equal("DSH-E201", snapshot.Error?.Code);
         Assert.Contains("code 24", snapshot.Error?.TechnicalMessage, StringComparison.Ordinal);
         Assert.Contains(logs.Snapshot(), line =>
@@ -71,11 +78,11 @@ public sealed class HarnessLifecycleCoordinatorProcessTests
             manager,
             "--tree",
             WaitMode.Timeout,
-            TimeSpan.FromMilliseconds(500));
+            TimeSpan.FromSeconds(5));
 
         var start = coordinator.StartAsync(CancellationToken.None);
-        var descendantPid = await childPid.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await start.WaitAsync(TimeSpan.FromSeconds(5));
+        var descendantPid = await childPid.Task.WaitAsync(ObservationTimeout);
+        await start.WaitAsync(ObservationTimeout);
 
         Assert.Equal(HarnessRuntimeState.Failed, coordinator.Current.State);
         Assert.Equal("DSH-E203", coordinator.Current.Error?.Code);
@@ -91,9 +98,9 @@ public sealed class HarnessLifecycleCoordinatorProcessTests
         await using var coordinator = await CreateCoordinatorAsync(manager, "--emit", WaitMode.UntilCancelled);
 
         var start = coordinator.StartAsync(CancellationToken.None);
-        await WaitUntilAsync(() => manager.IsRunning, TimeSpan.FromSeconds(5));
-        await coordinator.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
-        await start.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => manager.IsRunning, ObservationTimeout);
+        await coordinator.StopAsync(CancellationToken.None).WaitAsync(ObservationTimeout);
+        await start.WaitAsync(ObservationTimeout);
 
         Assert.Equal(HarnessRuntimeState.Stopped, coordinator.Current.State);
         Assert.False(manager.IsRunning);

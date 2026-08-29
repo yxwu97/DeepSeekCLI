@@ -64,21 +64,26 @@ public partial class App : System.Windows.Application
                 exception.Error.Code);
             _settings = new Models.AppSettings();
         }
-        var cacheLocator = new NpxDshCacheLocator();
+        var trustedVersions = new DshTrustedVersionPolicy();
+        var cacheLocator = new NpxDshCacheLocator(trustedVersions: trustedVersions);
         var pathProvider = new EnvironmentPathProvider();
-        var privateStore = new PrivateDshInstallationStore();
+        var privateStore = new PrivateDshInstallationStore(trustedVersions: trustedVersions);
         var versionProbe = new DshVersionProbe();
         var discoveryService = new DshCandidateDiscoveryService(
             pathProvider,
             privateStore,
             cacheLocator,
-            versionProbe);
-        var diagnosticsService = new DependencyDiagnosticsService(discovery: discoveryService);
+            versionProbe,
+            trustedVersions);
+        var diagnosticsService = new DependencyDiagnosticsService(
+            discovery: discoveryService,
+            trustedVersions: trustedVersions);
         var diagnostics = CreateInitialDiagnostics();
         _services = new ServiceCollection()
             .AddSingleton(_settings)
             .AddSingleton(redactor)
             .AddSingleton(diagnostics)
+            .AddSingleton<IDshTrustedVersionPolicy>(trustedVersions)
             .AddSingleton<IDependencyDiagnosticsService>(diagnosticsService)
             .AddSingleton(pathProvider)
             .AddSingleton(cacheLocator)
@@ -92,6 +97,8 @@ public partial class App : System.Windows.Application
             .AddSingleton<IDeepSeekAccountService, DeepSeekAccountService>()
             .AddSingleton<AccountViewModel>()
             .AddSingleton<IDshReleaseService>(_ => new DshReleaseService())
+            .AddSingleton<IDshCatalogService, DshCatalogNotConfiguredService>()
+            .AddSingleton<IDshUpdateCheckService, DshUpdateCheckService>()
             .AddSingleton<IExternalLinkLauncher, ExternalLinkLauncher>()
             .AddSingleton<IVersionHistoryProvider, VersionHistoryProvider>()
             .AddSingleton<IClipboardService, SystemClipboardService>()
@@ -107,6 +114,7 @@ public partial class App : System.Windows.Application
             .AddSingleton<IHarnessProcessManager, HarnessProcessManager>()
             .AddSingleton<IHarnessHealthMonitor, HarnessHealthMonitor>()
             .AddSingleton<INpmInstallRunner, NpmInstallRunner>()
+            .AddSingleton<IDshCandidateSmokeVerifier, DshCandidateSmokeVerifier>()
             .AddSingleton<IDshPreparationService, DshPreparationService>()
             .AddSingleton<IRuntimeHealthWatcher, RuntimeHealthWatcher>()
             .AddSingleton<IWebViewEnvironmentProvider, WebViewEnvironmentProvider>()

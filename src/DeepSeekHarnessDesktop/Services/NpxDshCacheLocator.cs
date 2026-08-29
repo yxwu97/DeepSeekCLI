@@ -1,4 +1,5 @@
 using DeepSeekHarnessDesktop.Utilities;
+using DeepSeekHarnessDesktop.Services.Abstractions;
 using System.Text.Json;
 
 namespace DeepSeekHarnessDesktop.Services;
@@ -13,10 +14,14 @@ public sealed class NpxDshCacheLocator
     private const int MaximumCandidateDirectories = 256;
     private const long MaximumManifestBytes = 64 * 1024;
     private readonly Func<string?> _cacheRootProvider;
+    private readonly IDshTrustedVersionPolicy _trustedVersions;
 
-    public NpxDshCacheLocator(Func<string?>? cacheRootProvider = null)
+    public NpxDshCacheLocator(
+        Func<string?>? cacheRootProvider = null,
+        IDshTrustedVersionPolicy? trustedVersions = null)
     {
         _cacheRootProvider = cacheRootProvider ?? DefaultCacheRoot;
+        _trustedVersions = trustedVersions ?? new DshTrustedVersionPolicy();
     }
 
     public async Task<CachedDshInstallation?> FindAsync(
@@ -37,7 +42,11 @@ public sealed class NpxDshCacheLocator
         foreach (var candidate in EnumerateCandidates(cacheRoot!))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var installation = await ValidateCandidateAsync(candidate, nodePath!, cancellationToken);
+            var installation = await ValidateCandidateAsync(
+                candidate,
+                nodePath!,
+                _trustedVersions.Current.Version,
+                cancellationToken);
             if (installation is not null)
             {
                 return installation;
@@ -85,6 +94,7 @@ public sealed class NpxDshCacheLocator
     private static async Task<CachedDshInstallation?> ValidateCandidateAsync(
         string candidateRoot,
         string nodePath,
+        string expectedVersion,
         CancellationToken cancellationToken)
     {
         var packageRoot = Path.Combine(candidateRoot, "node_modules", "@deepseek-ai", "dsh");
@@ -115,8 +125,8 @@ public sealed class NpxDshCacheLocator
                 4096,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-            return IsExpectedManifest(document.RootElement)
-                ? new CachedDshInstallation(nodePath, entryPointPath, DshPackageMetadata.ValidatedVersion)
+            return IsExpectedManifest(document.RootElement, expectedVersion)
+                ? new CachedDshInstallation(nodePath, entryPointPath, expectedVersion)
                 : null;
         }
         catch (Exception exception) when (
@@ -129,11 +139,11 @@ public sealed class NpxDshCacheLocator
     private static bool HasReparsePoint(params string[] paths) => paths.Any(
         path => (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0);
 
-    private static bool IsExpectedManifest(JsonElement root) =>
+    private static bool IsExpectedManifest(JsonElement root, string expectedVersion) =>
         root.TryGetProperty("name", out var name)
         && string.Equals(name.GetString(), DshPackageMetadata.PackageName, StringComparison.Ordinal)
         && root.TryGetProperty("version", out var version)
-        && string.Equals(version.GetString(), DshPackageMetadata.ValidatedVersion, StringComparison.Ordinal)
+        && string.Equals(version.GetString(), expectedVersion, StringComparison.Ordinal)
         && root.TryGetProperty("bin", out var bin)
         && bin.ValueKind == JsonValueKind.Object
         && bin.TryGetProperty("dsh", out var entry)

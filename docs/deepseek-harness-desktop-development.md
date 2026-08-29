@@ -23,7 +23,7 @@
 应用负责：
 
 1. 选择并记住 DSH 工作目录。
-2. 自动启动 `dsh web`。
+2. 自动启动 `dsh web --no-open`，禁止 DSH 唤起系统默认浏览器。
 3. 等待 Web 服务可用。
 4. 在内嵌浏览器中打开 DSH Web UI。
 5. 提供页面刷新、DSH 启动、停止和重启操作。
@@ -215,7 +215,7 @@ Failed
 默认启动策略：
 
 1. 若 `Launch.Mode` 为 `Custom`，只接受已存在的原生 `.exe`/`.com`，参数逐项写入 `ArgumentList`。
-2. Auto 对 PATH 中的 `dsh.cmd` 执行有限时 `--version` 探测，仅在精确等于 rc.7 时生成 `web [--port <数字>]`。
+2. Auto 对 PATH 中的 `dsh.cmd` 执行有限时 `--version` 探测，仅在精确匹配当前选择版本时生成 `web --no-open [--port <数字>]`。
 3. 全局候选不合格时，依次检查 rc.7 私有安装和严格 `_npx` 缓存，通过 PATH 中 `node.exe` 直接运行固定 `lib/bin.js`；全部缺失时进入确认后的私有安装。
 4. Owned 进程创建时保持挂起，先加入 `KILL_ON_JOB_CLOSE` Job Object，再恢复主线程；版本探测进程也在取消或超时时回收其创建的进程树。
 
@@ -489,7 +489,7 @@ UI 使用 MVVM，但不引入超出项目规模的复杂框架。命令绑定、
 `ServiceUriValidator` 是配置、健康探测、输出解析和 WebView2 导航的共同安全原语。配置只接受绝对、无用户信息、无 query/fragment 的 loopback HTTP(S) URI，并规范化到 `/`。默认端口继续使用原命令；非默认端口只生成以下两种受控模板之一：
 
 ```text
-dsh.cmd web --port <1-65535>
+dsh.cmd web --no-open --port <1-65535>
 npx.cmd -y @deepseek-ai/dsh@0.1.0-rc.6 web --port <1-65535>
 ```
 
@@ -542,3 +542,14 @@ npx.cmd -y @deepseek-ai/dsh@0.1.0-rc.6 web --port <1-65535>
 - Auto 在接受 PATH 全局 `dsh.cmd` 前执行 3 秒、4 KiB 输出上限的版本探测，只接受规范化后的精确 rc.7。rc.6、rc.8、非法输出、非零退出或超时均不执行，并继续选择私有/缓存 rc.7。
 - 版本探测复用受控 `.cmd` 转义，创建的进程树由 Job Object 限定；调用方取消继续传播，内部超时返回不可用结果。诊断与启动共用同一候选发现服务，避免显示与实际启动分叉。
 - 安装引导提供固定 `npm install -g @deepseek-ai/dsh@0.1.0-rc.7` 和 `npx @deepseek-ai/dsh@0.1.0-rc.7 web`，只复制文本并打开 PowerShell。关于窗口分开显示实际版本、Desktop 验证版本和 npm latest，latest 高于 rc.7 时仅提示尚未验证。
+
+## 22. Desktop 0.11.0 DSH rc.2 受信更新
+
+- Bootstrap 更新为 `@deepseek-ai/dsh@0.1.1-rc.2`。运行时消费 `IDshTrustedVersionPolicy.Current` 的不可变描述符；Bootstrap 常量不再充当后续所有版本的永久判断条件。
+- 生产锁图将 npm 循环 peer 以精确根依赖固定，并以 package override 把 `use-sync-external-store@1.2.0` 的旧 React peer 绑定到已锁定 `react@19.2.8`；lockfile 字节与 hash 不变。客户机只执行 `npm ci --omit=dev --ignore-scripts`，并清除 Token 和全部 `NPM_CONFIG_*`，拒绝 staging `.npmrc`，固定官方 registry、空 user/global config 与私有 cache。
+- 用户在关于窗口点击“下载并更新”并确认后才进入现有 preparation 链路。Owned 使用合法 Restart；External 只提示退出，不结束外部进程。manifest/lock/bin/固定入口和真实 Web 身份全部通过后才原子激活。
+- npm latest 仍为只读发现。`DshCatalogVerifier` 对无 BOM 原始 UTF-8 字节执行 RSA-3072/SHA-256 detached 验签，拒绝重复/未知字段、超限结构、非固定 HTTPS asset host 和任一字节篡改。
+- `DshCatalogClient` 拒绝重定向，以主/备份原子指针保存最高 sequence 与原始验签缓存；旧响应、同 sequence 不同 hash 和损坏缓存均 fail closed，只有网络不可用时才重新验签离线缓存。`DshUpdateCheckService` 并发合并 catalog 与 npm latest，latest 只产生等待验证提示。
+- catalog 资产下载到唯一受控目录并流式核对精确 bytes/SHA-256。安装事务携带目标 descriptor，依次通过 npm ci、Store graph、固定入口和真实 Web smoke；最终先切 active、再切 selected，提交区间不响应用户取消。Owned 先停止并在失败时尝试恢复旧版本，External 不参与更新。
+- `eng/dsh-catalog/New-DshCatalog.ps1` 只接受证书存储私钥或仓库外 PFX，生成无 BOM catalog 与原始 detached signature。当前源码没有生产公钥和已冻结端点，因此 DI 使用 fail-closed catalog 服务；Bootstrap rc.2 可用，但无代码 N+1 必须在正式信任根进入 Bootstrap 后才能启用。
+- `DSH-E223` 至 `DSH-E227` 分别固定表示资源错配、激活前校验、smoke、catalog 信任和协议兼容失败。生产 catalog 私钥只允许存在于受控签名环境。

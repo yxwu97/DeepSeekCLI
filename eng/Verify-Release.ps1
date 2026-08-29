@@ -125,8 +125,8 @@ $publishedPackagePath = Join-Path $publishDirectory 'dsh-runtime\package.json'
 $publishedLockPath = Join-Path $publishDirectory 'dsh-runtime\package-lock.json'
 $metadataPath = Join-Path $repositoryRoot 'src\DeepSeekHarnessDesktop\Utilities\DshPackageMetadata.cs'
 $metadataText = Get-Content -LiteralPath $metadataPath -Raw
-if ($metadataText -notmatch 'ValidatedVersion\s*=\s*"([^"]+)"') {
-    throw 'Unable to read the validated DSH version from DshPackageMetadata.cs.'
+if ($metadataText -notmatch 'BootstrapVersion\s*=\s*"([^"]+)"') {
+    throw 'Unable to read the Bootstrap DSH version from DshPackageMetadata.cs.'
 }
 $validatedDshVersion = $Matches[1]
 $sourcePackage = ConvertFrom-JsonDictionary (Get-Content -LiteralPath $sourcePackagePath -Raw)
@@ -135,6 +135,14 @@ $packageVersion = $sourcePackage['dependencies']['@deepseek-ai/dsh']
 $lockVersion = $sourceLock['packages']['']['dependencies']['@deepseek-ai/dsh']
 if ($packageVersion -ne $validatedDshVersion -or $lockVersion -ne $validatedDshVersion) {
     throw "DSH runtime resources do not pin validated version $validatedDshVersion."
+}
+if ($metadataText -notmatch 'BootstrapEvidenceSha256\s*=\s*\r?\n?\s*"([0-9a-f]{64})"') {
+    throw 'Unable to read the Bootstrap DSH lock hash from DshPackageMetadata.cs.'
+}
+$expectedLockHash = $Matches[1]
+$actualLockHash = (Get-FileHash -LiteralPath $sourceLockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actualLockHash -ne $expectedLockHash) {
+    throw "Bootstrap DSH lock hash mismatch: expected $expectedLockHash, actual $actualLockHash."
 }
 $dshLockEntryCount = 0
 foreach ($entry in $sourceLock['packages'].GetEnumerator()) {

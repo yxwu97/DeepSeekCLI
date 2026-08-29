@@ -20,7 +20,10 @@ internal static class SuspendedNativeProcessLauncher
         var stdout = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
         var stderr = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
         var stdin = new AnonymousPipeServerStream(PipeDirection.Out, HandleInheritability.Inheritable);
-        var environment = BuildEnvironmentBlock(options.Environment);
+        var environment = BuildEnvironmentBlock(
+            options.Environment,
+            options.RemovedEnvironmentVariables,
+            options.RemovedEnvironmentPrefixes);
         var commandLine = new StringBuilder(command.CommandLine);
         var startupInfo = CreateStartupInfo(stdout, stderr, stdin);
         ProcessInformation processInfo = default;
@@ -123,23 +126,29 @@ internal static class SuspendedNativeProcessLauncher
             StandardInput = stdin.ClientSafePipeHandle.DangerousGetHandle(),
         };
 
-    private static nint BuildEnvironmentBlock(IReadOnlyDictionary<string, string> overrides)
+    internal static IReadOnlyDictionary<string, string> BuildEnvironment(
+        IReadOnlyDictionary<string, string> overrides,
+        IReadOnlyCollection<string> removals,
+        IReadOnlyCollection<string> removalPrefixes)
     {
-        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var inherited = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
-            values[(string)entry.Key] = (string?)entry.Value ?? string.Empty;
+            inherited[(string)entry.Key] = (string?)entry.Value ?? string.Empty;
         }
-        foreach (var pair in overrides)
-        {
-            var name = pair.Key;
-            var value = pair.Value;
-            if (name.Contains('=') || name.IndexOf('\0') >= 0 || value.IndexOf('\0') >= 0)
-            {
-                throw new ArgumentException("Process environment contains an invalid name or value.");
-            }
-            values[name] = value;
-        }
+        return ProcessEnvironmentPolicy.Apply(
+            inherited,
+            overrides,
+            removals,
+            removalPrefixes);
+    }
+
+    private static nint BuildEnvironmentBlock(
+        IReadOnlyDictionary<string, string> overrides,
+        IReadOnlyCollection<string> removals,
+        IReadOnlyCollection<string> removalPrefixes)
+    {
+        var values = BuildEnvironment(overrides, removals, removalPrefixes);
         var block = string.Join("\0", values.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
             .Select(pair => $"{pair.Key}={pair.Value}")) + "\0\0";
         return Marshal.StringToHGlobalUni(block);

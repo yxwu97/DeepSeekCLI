@@ -9,4 +9,6 @@ public sealed record DshLaunchOptions
     public TimeSpan StartupTimeout { get; init; } = TimeSpan.FromSeconds(60);
     public IReadOnlyDictionary<string, string> Environment { get; init; } =
         new Dictionary<string, string>();
+    public IReadOnlyCollection<string> RemovedEnvironmentVariables { get; init; } = [];
+    public IReadOnlyCollection<string> RemovedEnvironmentPrefixes { get; init; } = [];
 }

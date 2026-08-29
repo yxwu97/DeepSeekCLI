@@ -6,7 +6,7 @@ namespace DeepSeekHarnessDesktop.Services;
 
 public static class CmdCommandLineBuilder
 {
-    private static readonly string[] DshArguments = ["web"];
+    private static readonly string[] DshArguments = ["web", "--no-open"];
 
     public static ProcessStartInfo Build(
         string scriptPath,

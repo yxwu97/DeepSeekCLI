@@ -174,7 +174,7 @@ public sealed class FeatureViewModelTests
     public async Task AboutUpdateCheckOnlyUpdatesPresentationResult()
     {
         var diagnostics = LaunchableDiagnostics();
-        var expected = new DshUpdateCheckResult("0.1.0-rc.8", DateTimeOffset.Now);
+        var expected = new DshUpdateCheckResult("0.1.1-rc.3", DateTimeOffset.Now);
         var viewModel = new AboutViewModel(
             new FakeDiagnosticsService(diagnostics),
             new FakeReleaseService(expected),
@@ -185,9 +185,130 @@ public sealed class FeatureViewModelTests
         await viewModel.CheckUpdateCommand.ExecuteAsync(null);
 
         Assert.Same(expected, viewModel.UpdateResult);
-        Assert.Contains("尚未经过 Desktop 验证", viewModel.UpdateStatus, StringComparison.Ordinal);
+        Assert.Contains("尚未进入签名目录", viewModel.UpdateStatus, StringComparison.Ordinal);
         Assert.Equal(DshPackageMetadata.ValidatedVersion, viewModel.ValidatedDshVersion);
         Assert.Same(diagnostics, viewModel.Diagnostics);
+    }
+
+    [Fact]
+    public async Task AboutDownloadUpdateNeverStopsRunningExternalDsh()
+    {
+        var diagnostics = UpdatableDiagnostics();
+        var coordinator = new FakeCoordinator(new HarnessStateSnapshot(
+            HarnessRuntimeState.RunningExternal,
+            new Uri("http://127.0.0.1:3080/"),
+            null,
+            false,
+            null,
+            "external",
+            DateTimeOffset.Now,
+            1));
+        var viewModel = new AboutViewModel(
+            new FakeDiagnosticsService(diagnostics),
+            new FakeReleaseService(new DshUpdateCheckResult("0.1.1-rc.2", DateTimeOffset.Now)),
+            new FakeLinkLauncher(),
+            new FakeVersionHistoryProvider(),
+            diagnostics,
+            coordinator: coordinator,
+            confirmation: new FakeConfirmation(true));
+
+        await viewModel.DownloadAndUpdateCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, coordinator.StartCount);
+        Assert.Contains("不会停止外部进程", viewModel.DownloadStatus, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AboutDownloadUpdateUsesLifecycleStartAfterConfirmation()
+    {
+        var diagnostics = UpdatableDiagnostics();
+        var coordinator = new FakeCoordinator(Stopped());
+        var viewModel = new AboutViewModel(
+            new FakeDiagnosticsService(diagnostics),
+            new FakeReleaseService(new DshUpdateCheckResult("0.1.1-rc.2", DateTimeOffset.Now)),
+            new FakeLinkLauncher(),
+            new FakeVersionHistoryProvider(),
+            diagnostics,
+            coordinator: coordinator,
+            confirmation: new FakeConfirmation(true));
+
+        await viewModel.DownloadAndUpdateCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, coordinator.StartCount);
+    }
+
+    [Fact]
+    public async Task AboutCatalogUpdateRequiresSignedCandidateAndUsesRuntimeCoordinator()
+    {
+        var diagnostics = InstalledDshDiagnostics();
+        var entry = new DshCatalogEntry(
+            "0.1.1-rc.3",
+            DateTimeOffset.Now,
+            DshPackageMetadata.RuntimeProtocol,
+            DshPackageMetadata.MinimumDesktopVersion,
+            DshPackageMetadata.SupportedNodeVersionRange,
+            false,
+            new DshCatalogAsset(new Uri("https://assets.example.test/package.json"), 1, new string('a', 64)),
+            new DshCatalogAsset(new Uri("https://assets.example.test/package-lock.json"), 1, new string('b', 64)));
+        var candidate = new DshCatalogUpdateCandidate(
+            entry,
+            new DshRuntimeDescriptor(
+                entry.Version,
+                entry.RuntimeProtocol,
+                entry.MinimumDesktopVersion,
+                entry.NodeVersionRange,
+                "catalog:12",
+                entry.Lock.Sha256),
+            12);
+        var updateCoordinator = new FakeRuntimeUpdateCoordinator();
+        var viewModel = new AboutViewModel(
+            new FakeDiagnosticsService(diagnostics),
+            new FakeReleaseService(new DshUpdateCheckResult("0.1.1-rc.4", DateTimeOffset.Now)),
+            new FakeLinkLauncher(),
+            new FakeVersionHistoryProvider(),
+            diagnostics,
+            coordinator: new FakeCoordinator(Stopped()),
+            confirmation: new FakeConfirmation(true),
+            updateCheckService: new FakeUpdateCheckService(new DshCombinedUpdateCheckResult(
+                DshPackageMetadata.BootstrapVersion,
+                "0.1.1-rc.4",
+                candidate,
+                true,
+                DateTimeOffset.Now)),
+            runtimeUpdateCoordinator: updateCoordinator);
+
+        await viewModel.CheckUpdateCommand.ExecuteAsync(null);
+        Assert.True(viewModel.DownloadAndUpdateCommand.CanExecute(null));
+        Assert.Equal("0.1.1-rc.3", viewModel.CatalogUpdateVersion);
+        await viewModel.DownloadAndUpdateCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, updateCoordinator.ApplyCount);
+        Assert.Same(candidate, updateCoordinator.Target);
+    }
+
+    [Fact]
+    public async Task AboutLatestWithoutSignedCandidateDoesNotUnlockInstalledRuntimeUpdate()
+    {
+        var diagnostics = InstalledDshDiagnostics();
+        var viewModel = new AboutViewModel(
+            new FakeDiagnosticsService(diagnostics),
+            new FakeReleaseService(new DshUpdateCheckResult("0.1.1-rc.4", DateTimeOffset.Now)),
+            new FakeLinkLauncher(),
+            new FakeVersionHistoryProvider(),
+            diagnostics,
+            coordinator: new FakeCoordinator(Stopped()),
+            confirmation: new FakeConfirmation(true),
+            updateCheckService: new FakeUpdateCheckService(new DshCombinedUpdateCheckResult(
+                DshPackageMetadata.BootstrapVersion,
+                "0.1.1-rc.4",
+                null,
+                true,
+                DateTimeOffset.Now)));
+
+        await viewModel.CheckUpdateCommand.ExecuteAsync(null);
+
+        Assert.False(viewModel.DownloadAndUpdateCommand.CanExecute(null));
+        Assert.Contains("不能安装", viewModel.UpdateStatus, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -338,6 +459,16 @@ public sealed class FeatureViewModelTests
         new DependencyCheck(DependencyStatus.Missing),
         []);
 
+    private static DependencyDiagnosticsResult UpdatableDiagnostics() => new(
+        "0.11.0",
+        "4.8.0",
+        new DependencyCheck(DependencyStatus.Available),
+        new DependencyCheck(DependencyStatus.Missing),
+        new DependencyCheck(DependencyStatus.Available, Version: "v24.15.0"),
+        new DependencyCheck(DependencyStatus.Available),
+        [],
+        new DependencyCheck(DependencyStatus.Available));
+
     private static HarnessStateSnapshot Stopped() => new(
         HarnessRuntimeState.Stopped, null, null, false, null, "stopped", DateTimeOffset.Now, 1);
 
@@ -396,6 +527,35 @@ public sealed class FeatureViewModelTests
     private sealed class FakeReleaseService(DshUpdateCheckResult result) : IDshReleaseService
     {
         public Task<DshUpdateCheckResult> CheckLatestAsync(CancellationToken cancellationToken) => Task.FromResult(result);
+    }
+
+    private sealed class FakeUpdateCheckService(DshCombinedUpdateCheckResult result) : IDshUpdateCheckService
+    {
+        public Task<DshCombinedUpdateCheckResult> CheckAsync(
+            string desktopVersion,
+            string? nodeVersion,
+            CancellationToken cancellationToken) => Task.FromResult(result);
+    }
+
+    private sealed class FakeRuntimeUpdateCoordinator : IDshRuntimeUpdateCoordinator
+    {
+        public int ApplyCount { get; private set; }
+        public DshCatalogUpdateCandidate? Target { get; private set; }
+
+        public Task<DshInstallationCandidate> ApplyAsync(
+            DshCatalogUpdateCandidate target,
+            DependencyDiagnosticsResult diagnostics,
+            CancellationToken cancellationToken)
+        {
+            ApplyCount++;
+            Target = target;
+            return Task.FromResult(new DshInstallationCandidate(
+                DshInstallationSource.Private,
+                diagnostics.Node.Path!,
+                "bin.js",
+                target.Entry.Version,
+                "test"));
+        }
     }
 
     private sealed class FakeLinkLauncher : IExternalLinkLauncher

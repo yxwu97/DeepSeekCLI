@@ -6,6 +6,13 @@ namespace DeepSeekHarnessDesktop.Services;
 
 public sealed class UserConfirmationService : IUserConfirmationService
 {
+    private readonly IDshTrustedVersionPolicy _trustedVersions;
+
+    public UserConfirmationService(IDshTrustedVersionPolicy? trustedVersions = null)
+    {
+        _trustedVersions = trustedVersions ?? new DshTrustedVersionPolicy();
+    }
+
     public bool ConfirmServiceRestart(Uri currentUri, Uri newUri) => MessageBox.Show(
         Application.Current?.MainWindow,
         $"应用新的服务地址需要重启当前 DSH。\n\n当前：{currentUri}\n新的：{newUri}\n\n是否继续？",
@@ -15,9 +22,10 @@ public sealed class UserConfirmationService : IUserConfirmationService
 
     public bool ConfirmDshDownload() => MessageBox.Show(
         Application.Current?.MainWindow,
-        $"应用将从 npm registry 下载锁定的 DSH {DshPackageMetadata.ValidatedVersion} 完整依赖图。\n\n"
+        $"应用将从 npm 官方 registry 下载受信的 DSH {_trustedVersions.Current.Version} 完整依赖图。\n\n"
         + "安装位置：%LOCALAPPDATA%\\DeepSeekHarnessDesktop\\dsh\n"
-        + "预计磁盘占用：约 300 MiB\n\n"
+        + "预计磁盘占用：约 300 MiB；最长等待：10 分钟；可取消。\n"
+        + "不会修改全局 npm，也不会执行依赖安装脚本。\n\n"
         + "安装成功后会直接复用，不会在每次启动时重复下载。是否继续？",
         "准备并启动 DSH",
         MessageBoxButton.YesNo,

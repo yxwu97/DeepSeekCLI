@@ -11,9 +11,9 @@ namespace DeepSeekHarnessDesktop.ViewModels;
 public sealed partial class InstallationGuideViewModel : ObservableObject, IDisposable
 {
     public const string GlobalInstallCommandText =
-        "npm install -g " + DshPackageMetadata.ValidatedPackageSpec;
+        "npm install -g " + DshPackageMetadata.BootstrapPackageSpec;
     public const string ManualStartCommandText =
-        "npx " + DshPackageMetadata.ValidatedPackageSpec + " web";
+        "npx " + DshPackageMetadata.BootstrapPackageSpec + " web";
     private static readonly TimeSpan TimerInterval = TimeSpan.FromSeconds(1);
     private readonly IDependencyDiagnosticsService _diagnosticsService;
     private readonly IHarnessLifecycleCoordinator _coordinator;
@@ -24,6 +24,7 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
     private readonly ITerminalLauncher? _terminalLauncher;
     private readonly TimeProvider _timeProvider;
     private readonly AppSettings _settings;
+    private readonly IDshTrustedVersionPolicy _trustedVersions;
     private CancellationTokenSource? _timerCancellation;
     private long _operationStartedAt;
     private long _stageStartedAt;
@@ -57,7 +58,8 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
         AppSettings? settings = null,
         IClipboardService? clipboard = null,
         ITerminalLauncher? terminalLauncher = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IDshTrustedVersionPolicy? trustedVersions = null)
     {
         _diagnosticsService = diagnosticsService;
         _coordinator = coordinator;
@@ -69,6 +71,7 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
         _clipboard = clipboard;
         _terminalLauncher = terminalLauncher;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _trustedVersions = trustedVersions ?? new DshTrustedVersionPolicy();
         _elapsedText = $"阶段 00:00 · 总计 00:00 / {TimeoutText}";
         _isActive = NeedsGuidedPreparation(diagnostics);
         RecentLogs = new ObservableCollection<ProcessOutputLine>(logBuffer.Snapshot());
@@ -118,7 +121,7 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
     public string DshStatusText => HasInstalledDsh
         ? $"已安装 · {FormatSource(Diagnostics.DshSource)} · {Diagnostics.GlobalDsh.Version ?? "版本未知"}"
         : Diagnostics.CanPrepareDsh
-            ? $"首次启动将安装锁定版本 {DshPackageMetadata.ValidatedVersion}"
+            ? $"首次启动将安装受信版本 {_trustedVersions.Current.Version}"
             : "等待 Node.js 与 npm";
     public string GlobalInstallCommand => GlobalInstallCommandText;
     public string ManualStartCommand => ManualStartCommandText;
@@ -217,7 +220,7 @@ public sealed partial class InstallationGuideViewModel : ObservableObject, IDisp
         BeginTiming(HasInstalledDsh ? "启动 DSH" : "下载并安装 DSH");
         StageMessage = HasInstalledDsh
             ? "正在启动已安装的 DSH..."
-            : $"正在私有目录安装锁定的 DSH {DshPackageMetadata.ValidatedVersion}，最长等待 {TimeoutText}...";
+            : $"正在私有目录安装受信的 DSH {_trustedVersions.Current.Version}，最长等待 {TimeoutText}...";
         LogPreparation();
         try
         {

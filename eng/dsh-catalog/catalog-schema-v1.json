@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yxwu97/DeepSeekCLI/dsh-catalog/catalog-schema-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "catalogSequence", "generatedAt", "signingKeyId", "entries"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "catalogSequence": { "type": "integer", "minimum": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "signingKeyId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "entries": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "bytes", "sha256"],
+      "properties": {
+        "url": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 16777216 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version", "publishedAt", "runtimeProtocol", "minimumDesktopVersion",
+        "nodeVersionRange", "revoked", "package", "lock"
+      ],
+      "properties": {
+        "version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "publishedAt": { "type": "string", "format": "date-time" },
+        "runtimeProtocol": { "type": "integer", "minimum": 1 },
+        "minimumDesktopVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "nodeVersionRange": { "type": "string", "pattern": "^>=[0-9]+(?:\\.[0-9]+(?:\\.[0-9]+)?)? <[0-9]+(?:\\.[0-9]+(?:\\.[0-9]+)?)?$" },
+        "revoked": { "type": "boolean" },
+        "package": { "$ref": "#/$defs/asset" },
+        "lock": { "$ref": "#/$defs/asset" }
+      }
+    }
+  }
+}

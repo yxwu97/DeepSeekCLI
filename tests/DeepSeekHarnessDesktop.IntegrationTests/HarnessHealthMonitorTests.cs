@@ -25,9 +25,26 @@ public sealed class HarnessHealthMonitorTests
         Assert.Equal(server.BaseUri, result.FinalUri);
     }
 
+    [Fact]
+    public async Task ConfirmsRc2GlobalThisBootMarker()
+    {
+        const string body =
+            "<title>DeepSeek Harness</title><script>globalThis[\"__DSH_BOOT__\"]={};</script>";
+        await using var server = new FakeHarnessServer(_ => new FakeResponse(Body: body));
+        using var monitor = new HarnessHealthMonitor();
+
+        var result = await monitor.ProbeAsync(
+            server.BaseUri,
+            TimeSpan.FromSeconds(2),
+            CancellationToken.None);
+
+        Assert.Equal(HealthProbeStatus.DshConfirmed, result.Status);
+    }
+
     [Theory]
     [InlineData("<title>DeepSeek Harness</title>")]
     [InlineData("<script>window.__DSH_BOOT__={};</script>")]
+    [InlineData("<title>DeepSeek Harness</title><script>globalThis.__DSH_BOOT__={};</script>")]
     [InlineData("ordinary page")]
     public async Task ClassifiesMissingIdentityFeatureAsUnknown(string body)
     {

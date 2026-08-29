@@ -9,7 +9,30 @@ namespace DeepSeekHarnessDesktop.Services;
 public sealed record PrivateDshInstallTransaction(
     string StagingPath,
     string InstallId,
-    string LockSha256);
+    string LockSha256,
+    DshRuntimeDescriptor Descriptor)
+{
+    public PrivateDshInstallTransaction(
+        string stagingPath,
+        string installId,
+        string lockSha256,
+        string version = DshPackageMetadata.BootstrapVersion)
+        : this(
+            stagingPath,
+            installId,
+            lockSha256,
+            new DshRuntimeDescriptor(
+                version,
+                DshPackageMetadata.RuntimeProtocol,
+                DshPackageMetadata.MinimumDesktopVersion,
+                DshPackageMetadata.SupportedNodeVersionRange,
+                "legacy-transaction",
+                lockSha256))
+    {
+    }
+
+    public string Version => Descriptor.Version;
+}
 
 public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
 {
@@ -18,14 +41,17 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
     private const long MaximumLockBytes = 4 * 1024 * 1024;
     private readonly Func<string> _rootProvider;
     private readonly Func<string> _resourceRootProvider;
+    private readonly IDshTrustedVersionPolicy _trustedVersions;
 
     public PrivateDshInstallationStore(
         Func<string>? rootProvider = null,
-        Func<string>? resourceRootProvider = null)
+        Func<string>? resourceRootProvider = null,
+        IDshTrustedVersionPolicy? trustedVersions = null)
     {
         _rootProvider = rootProvider ?? DefaultRoot;
         _resourceRootProvider = resourceRootProvider
             ?? (() => Path.Combine(AppContext.BaseDirectory, "dsh-runtime"));
+        _trustedVersions = trustedVersions ?? new DshTrustedVersionPolicy();
     }
 
     public async Task<DshInstallationCandidate?> FindActiveAsync(
@@ -51,7 +77,19 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
                 continue;
             }
 
-            var candidate = await ValidateVersionAsync(root, state, nodePath!, cancellationToken);
+            var current = _trustedVersions.Current;
+            if (!string.Equals(state.Version, current.Version, StringComparison.Ordinal)
+                || !string.Equals(state.LockSha256, current.EvidenceSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var candidate = await ValidateVersionAsync(
+                root,
+                state,
+                current,
+                nodePath!,
+                cancellationToken);
             if (candidate is not null)
             {
                 return candidate;
@@ -64,6 +102,20 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
     public async Task<PrivateDshInstallTransaction> CreateTransactionAsync(
         CancellationToken cancellationToken)
     {
+        var resourceRoot = Path.GetFullPath(_resourceRootProvider());
+        return await CreateTransactionAsync(
+            _trustedVersions.Bootstrap,
+            Path.Combine(resourceRoot, "package.json"),
+            Path.Combine(resourceRoot, "package-lock.json"),
+            cancellationToken);
+    }
+
+    public async Task<PrivateDshInstallTransaction> CreateTransactionAsync(
+        DshRuntimeDescriptor descriptor,
+        string packagePath,
+        string lockPath,
+        CancellationToken cancellationToken)
+    {
         var root = GetRoot();
         EnsureControlledDirectory(root);
         var stagingRoot = Path.Combine(root, "staging");
@@ -71,8 +123,13 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
         EnsureControlledDirectory(stagingRoot);
         EnsureControlledDirectory(versionsRoot);
 
-        var resources = await ValidateResourcesAsync(cancellationToken);
-        var installId = BuildInstallId(resources.LockSha256);
+        var resources = await ValidateResourcesAsync(
+            descriptor,
+            packagePath,
+            lockPath,
+            cancellationToken);
+        var version = descriptor.Version;
+        var installId = BuildInstallId(version, resources.LockSha256);
         var stagingPath = Path.Combine(stagingRoot, Guid.NewGuid().ToString("N"));
         EnsureDirectChild(stagingRoot, stagingPath);
         Directory.CreateDirectory(stagingPath);
@@ -80,7 +137,11 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
         {
             await CopyFileAsync(resources.PackagePath, Path.Combine(stagingPath, "package.json"), cancellationToken);
             await CopyFileAsync(resources.LockPath, Path.Combine(stagingPath, "package-lock.json"), cancellationToken);
-            return new PrivateDshInstallTransaction(stagingPath, installId, resources.LockSha256);
+            return new PrivateDshInstallTransaction(
+                stagingPath,
+                installId,
+                resources.LockSha256,
+                descriptor);
         }
         catch
         {
@@ -100,7 +161,7 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
         await ValidateInstalledGraphAsync(transaction, cancellationToken);
         var state = new InstallState(
             transaction.InstallId,
-            DshPackageMetadata.ValidatedVersion,
+            transaction.Version,
             transaction.LockSha256);
         await WriteJsonAsync(
             Path.Combine(transaction.StagingPath, "install.json"),
@@ -130,17 +191,27 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
         }
         else
         {
-            var existing = await ValidateVersionAsync(root, state, nodePath, cancellationToken);
+            var existing = await ValidateVersionAsync(
+                root,
+                state,
+                transaction.Descriptor,
+                nodePath,
+                cancellationToken);
             if (existing is null)
             {
-                throw StoreError("现有 DSH 私有安装已损坏", "Existing private DSH version failed validation.");
+                throw ValidationError("Existing private DSH version failed validation.");
             }
             DeleteTreeSafely(transaction.StagingPath);
             return existing;
         }
 
-        return await ValidateVersionAsync(root, state, nodePath, cancellationToken)
-            ?? throw StoreError("DSH 私有安装校验失败", "Committed private DSH version failed validation.");
+        return await ValidateVersionAsync(
+            root,
+            state,
+            transaction.Descriptor,
+            nodePath,
+            cancellationToken)
+            ?? throw ValidationError("Committed private DSH version failed validation.");
     }
 
     private async Task<DshInstallationCandidate> ReuseConcurrentCommitAsync(
@@ -151,12 +222,15 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
         string nodePath,
         CancellationToken cancellationToken)
     {
-        var existing = await ValidateVersionAsync(root, state, nodePath, cancellationToken);
+        var existing = await ValidateVersionAsync(
+            root,
+            state,
+            transaction.Descriptor,
+            nodePath,
+            cancellationToken);
         if (existing is null)
         {
-            throw StoreError(
-                "现有 DSH 私有安装已损坏",
-                $"Concurrent private DSH commit is invalid: {versionPath}");
+            throw ValidationError($"Concurrent private DSH commit is invalid: {versionPath}");
         }
         DeleteTreeSafely(transaction.StagingPath);
         return existing;
@@ -236,13 +310,17 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
         }
     }
 
-    private static async Task<DshInstallationCandidate?> ValidateVersionAsync(
+    private async Task<DshInstallationCandidate?> ValidateVersionAsync(
         string root,
         InstallState state,
+        DshRuntimeDescriptor descriptor,
         string nodePath,
         CancellationToken cancellationToken)
     {
-        if (!IsValidState(state) || state.InstallId != BuildInstallId(state.LockSha256))
+        if (!IsValidState(state)
+            || state.InstallId != BuildInstallId(state.Version, state.LockSha256)
+            || !string.Equals(state.Version, descriptor.Version, StringComparison.Ordinal)
+            || !string.Equals(state.LockSha256, descriptor.EvidenceSha256, StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
@@ -268,7 +346,8 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
             }
 
             var marker = await TryReadStateAsync<InstallState>(markerPath, cancellationToken);
-            if (marker != state || !await IsExpectedManifestAsync(manifestPath, cancellationToken))
+            if (marker != state
+                || !await IsExpectedManifestAsync(manifestPath, state.Version, cancellationToken))
             {
                 return null;
             }
@@ -304,7 +383,7 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
                 transaction.LockSha256,
                 StringComparison.OrdinalIgnoreCase))
         {
-            throw StoreError("DSH 锁文件校验失败", "package-lock.json changed during npm ci.");
+            throw ValidationError("package-lock.json changed during npm ci.");
         }
 
         var manifest = Path.Combine(
@@ -320,23 +399,37 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
             "dsh",
             "lib",
             "bin.js");
-        if (!IsRegularFile(entryPoint) || !await IsExpectedManifestAsync(manifest, cancellationToken))
+        if (!IsRegularFile(entryPoint)
+            || !await IsExpectedManifestAsync(manifest, transaction.Version, cancellationToken))
         {
-            throw StoreError("DSH 安装内容校验失败", "The installed DSH entry point or manifest is invalid.");
+            throw ValidationError("The installed DSH entry point or manifest is invalid.");
         }
     }
 
-    private async Task<ResourceState> ValidateResourcesAsync(CancellationToken cancellationToken)
+    private static async Task<ResourceState> ValidateResourcesAsync(
+        DshRuntimeDescriptor descriptor,
+        string packagePath,
+        string lockPath,
+        CancellationToken cancellationToken)
     {
-        var resourceRoot = Path.GetFullPath(_resourceRootProvider());
-        var packagePath = Path.Combine(resourceRoot, "package.json");
-        var lockPath = Path.Combine(resourceRoot, "package-lock.json");
+        packagePath = Path.GetFullPath(packagePath);
+        lockPath = Path.GetFullPath(lockPath);
+        var resourceRoot = Path.GetDirectoryName(packagePath)
+            ?? throw ResourceError("Trusted package.json has no parent directory.");
         if (!IsRegularFile(packagePath) || !IsRegularFile(lockPath)
             || new FileInfo(packagePath).Length > MaximumPackageBytes
             || new FileInfo(lockPath).Length > MaximumLockBytes
-            || IsReparsePoint(resourceRoot))
+            || IsReparsePoint(resourceRoot)
+            || IsReparsePoint(packagePath)
+            || IsReparsePoint(lockPath)
+            || !string.Equals(
+                PathCompatibility.TrimEndingDirectorySeparator(resourceRoot),
+                PathCompatibility.TrimEndingDirectorySeparator(Path.GetDirectoryName(lockPath)!),
+                StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(Path.GetFileName(packagePath), "package.json", StringComparison.Ordinal)
+            || !string.Equals(Path.GetFileName(lockPath), "package-lock.json", StringComparison.Ordinal))
         {
-            throw StoreError("DSH 安装资源缺失或无效", "Trusted package.json/package-lock.json resources are unavailable.");
+            throw ResourceError("Trusted package.json/package-lock.json resources are unavailable.");
         }
 
         using (var stream = new FileStream(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, true))
@@ -344,21 +437,37 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
         {
             if (!document.RootElement.TryGetProperty("dependencies", out var dependencies)
                 || !dependencies.TryGetProperty(DshPackageMetadata.PackageName, out var version)
-                || !string.Equals(version.GetString(), DshPackageMetadata.ValidatedVersion, StringComparison.Ordinal))
+                || !string.Equals(
+                    version.GetString(),
+                    descriptor.Version,
+                    StringComparison.Ordinal))
             {
-                throw StoreError("DSH 安装资源版本无效", "Trusted package.json does not pin the validated DSH version.");
+                throw ResourceError("Trusted package.json does not pin the selected DSH version.");
             }
         }
-        await ValidateLockRootAsync(lockPath, cancellationToken);
+        await ValidateLockRootAsync(
+            lockPath,
+            descriptor.Version,
+            cancellationToken);
+
+        var lockSha256 = await ComputeSha256Async(lockPath, cancellationToken);
+        if (!string.Equals(
+                lockSha256,
+                descriptor.EvidenceSha256,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw ResourceError("Trusted package-lock.json hash does not match the selected runtime descriptor.");
+        }
 
         return new ResourceState(
             packagePath,
             lockPath,
-            await ComputeSha256Async(lockPath, cancellationToken));
+            lockSha256);
     }
 
     private static async Task ValidateLockRootAsync(
         string lockPath,
+        string expectedVersion,
         CancellationToken cancellationToken)
     {
         using var stream = new FileStream(lockPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, true);
@@ -369,16 +478,16 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
             || !packages.TryGetProperty(string.Empty, out var rootPackage)
             || !rootPackage.TryGetProperty("dependencies", out var dependencies)
             || !dependencies.TryGetProperty(DshPackageMetadata.PackageName, out var version)
-            || !string.Equals(version.GetString(), DshPackageMetadata.ValidatedVersion, StringComparison.Ordinal))
+            || !string.Equals(version.GetString(), expectedVersion, StringComparison.Ordinal))
         {
-            throw StoreError(
-                "DSH 锁文件根依赖无效",
-                "Trusted package-lock.json does not pin the validated root DSH version.");
+            throw ResourceError(
+                "Trusted package-lock.json does not pin the selected root DSH version.");
         }
     }
 
     private static async Task<bool> IsExpectedManifestAsync(
         string manifestPath,
+        string expectedVersion,
         CancellationToken cancellationToken)
     {
         if (!IsRegularFile(manifestPath) || new FileInfo(manifestPath).Length > MaximumPackageBytes)
@@ -391,7 +500,7 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
         return root.TryGetProperty("name", out var name)
             && string.Equals(name.GetString(), DshPackageMetadata.PackageName, StringComparison.Ordinal)
             && root.TryGetProperty("version", out var version)
-            && string.Equals(version.GetString(), DshPackageMetadata.ValidatedVersion, StringComparison.Ordinal)
+            && string.Equals(version.GetString(), expectedVersion, StringComparison.Ordinal)
             && root.TryGetProperty("bin", out var bin)
             && bin.TryGetProperty("dsh", out var entry)
             && string.Equals(entry.GetString(), "lib/bin.js", StringComparison.Ordinal);
@@ -545,10 +654,10 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
     private string GetRoot() => Path.GetFullPath(_rootProvider());
     private static string ActivePath(string root) => Path.Combine(root, "active.json");
     private static string ActiveBackupPath(string root) => Path.Combine(root, "active.json.bak");
-    private static string BuildInstallId(string digest) =>
-        $"{DshPackageMetadata.ValidatedVersion}-{digest.Substring(0, 16).ToLowerInvariant()}";
-    private static bool IsValidState(InstallState state) =>
-        string.Equals(state.Version, DshPackageMetadata.ValidatedVersion, StringComparison.Ordinal)
+    private static string BuildInstallId(string version, string digest) =>
+        $"{version}-{digest.Substring(0, 16).ToLowerInvariant()}";
+    private bool IsValidState(InstallState state) =>
+        string.Equals(state.Version, _trustedVersions.Current.Version, StringComparison.Ordinal)
         && state.LockSha256.Length == 64
         && state.LockSha256.All(character => Uri.IsHexDigit(character))
         && state.InstallId.Length <= 96
@@ -559,6 +668,10 @@ public sealed class PrivateDshInstallationStore : IPrivateDshInstallationStore
         "dsh");
     private static HarnessException StoreError(string userMessage, string technicalMessage) =>
         new(new HarnessError("DSH-E214", userMessage, technicalMessage, true));
+    private static HarnessException ResourceError(string technicalMessage) =>
+        new(DshUpdateErrorMapper.ResourceMismatch(technicalMessage));
+    private static HarnessException ValidationError(string technicalMessage) =>
+        new(DshUpdateErrorMapper.ActivationValidationFailed(technicalMessage));
 
     private sealed record InstallState(string InstallId, string Version, string LockSha256);
     private sealed record ResourceState(string PackagePath, string LockPath, string LockSha256);

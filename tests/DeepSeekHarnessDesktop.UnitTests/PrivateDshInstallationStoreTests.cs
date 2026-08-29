@@ -1,6 +1,8 @@
 using DeepSeekHarnessDesktop.Models;
 using DeepSeekHarnessDesktop.Services;
+using DeepSeekHarnessDesktop.Services.Abstractions;
 using DeepSeekHarnessDesktop.Utilities;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace DeepSeekHarnessDesktop.UnitTests;
@@ -84,7 +86,7 @@ public sealed class PrivateDshInstallationStoreTests : IDisposable
             _nodePath,
             CancellationToken.None));
 
-        Assert.Equal("DSH-E214", exception.Error.Code);
+        Assert.Equal("DSH-E224", exception.Error.Code);
         Assert.Null(await store.FindActiveAsync(_nodePath, CancellationToken.None));
         await store.CleanupAsync(transaction);
     }
@@ -117,7 +119,7 @@ public sealed class PrivateDshInstallationStoreTests : IDisposable
         var exception = await Assert.ThrowsAsync<HarnessException>(
             () => store.CreateTransactionAsync(CancellationToken.None));
 
-        Assert.Equal("DSH-E214", exception.Error.Code);
+        Assert.Equal("DSH-E223", exception.Error.Code);
         Assert.Empty(Directory.EnumerateDirectories(Path.Combine(_root, "store", "staging")));
     }
 
@@ -134,9 +136,56 @@ public sealed class PrivateDshInstallationStoreTests : IDisposable
         Assert.True(Directory.Exists(outside));
     }
 
-    private PrivateDshInstallationStore CreateStore() => new(
-        () => Path.Combine(_root, "store"),
-        () => _resources);
+    [Fact]
+    public async Task CatalogDescriptorCanBeCommittedBeforeItBecomesSelected()
+    {
+        var lockPath = Path.Combine(_resources, "package-lock.json");
+        var lockSha = ComputeSha256(lockPath);
+        var target = new DshRuntimeDescriptor(
+            DshPackageMetadata.BootstrapVersion,
+            DshPackageMetadata.RuntimeProtocol,
+            DshPackageMetadata.MinimumDesktopVersion,
+            DshPackageMetadata.SupportedNodeVersionRange,
+            "catalog:12",
+            lockSha);
+        var store = CreateStore();
+
+        var transaction = await store.CreateTransactionAsync(
+            target,
+            Path.Combine(_resources, "package.json"),
+            lockPath,
+            CancellationToken.None);
+        CreateInstalledDsh(transaction.StagingPath);
+        var candidate = await store.CommitVersionAsync(transaction, _nodePath, CancellationToken.None);
+
+        Assert.Equal(target.Version, candidate.Version);
+        Assert.Null(await store.FindActiveAsync(_nodePath, CancellationToken.None));
+        await store.CleanupAsync(transaction);
+    }
+
+    private PrivateDshInstallationStore CreateStore()
+    {
+        var lockPath = Path.Combine(_resources, "package-lock.json");
+        var digest = ComputeSha256(lockPath);
+        var policy = new FixedTrustedVersionPolicy(new DshRuntimeDescriptor(
+            DshPackageMetadata.BootstrapVersion,
+            DshPackageMetadata.RuntimeProtocol,
+            DshPackageMetadata.MinimumDesktopVersion,
+            DshPackageMetadata.SupportedNodeVersionRange,
+            "test",
+            digest));
+        return new PrivateDshInstallationStore(
+            () => Path.Combine(_root, "store"),
+            () => _resources,
+            policy);
+    }
+
+    private static string ComputeSha256(string path)
+    {
+        using var sha = SHA256.Create();
+        using var stream = File.OpenRead(path);
+        return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", string.Empty);
+    }
 
     private static void CreateInstalledDsh(string root)
     {
@@ -160,5 +209,14 @@ public sealed class PrivateDshInstallationStoreTests : IDisposable
         {
             Directory.Delete(_root, true);
         }
+    }
+
+    private sealed class FixedTrustedVersionPolicy(DshRuntimeDescriptor descriptor)
+        : IDshTrustedVersionPolicy
+    {
+        public DshRuntimeDescriptor Bootstrap => descriptor;
+        public DshRuntimeDescriptor Current => descriptor;
+        public Task SelectAsync(DshRuntimeDescriptor value, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }

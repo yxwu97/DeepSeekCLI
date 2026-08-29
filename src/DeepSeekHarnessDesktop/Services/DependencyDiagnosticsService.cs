@@ -12,13 +12,15 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
     private readonly Func<string?> _getWebView2Version;
     private readonly Func<string, CancellationToken, Task<string?>> _getExecutableVersion;
     private readonly IDshCandidateDiscoveryService _discovery;
+    private readonly IDshTrustedVersionPolicy _trustedVersions;
 
     public DependencyDiagnosticsService(
         Func<string, string?>? getEnvironmentVariable = null,
         Func<string?>? getWebView2Version = null,
         Func<string, CancellationToken, Task<string?>>? getExecutableVersion = null,
         NpxDshCacheLocator? cacheLocator = null,
-        IDshCandidateDiscoveryService? discovery = null)
+        IDshCandidateDiscoveryService? discovery = null,
+        IDshTrustedVersionPolicy? trustedVersions = null)
     {
         var pathProvider = getEnvironmentVariable is null
             ? new EnvironmentPathProvider()
@@ -28,6 +30,7 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
         _discovery = discovery ?? new DshCandidateDiscoveryService(
             pathProvider,
             cacheLocator: cacheLocator);
+        _trustedVersions = trustedVersions ?? new DshTrustedVersionPolicy();
     }
 
     public async Task<DependencyDiagnosticsResult> DiagnoseAsync(CancellationToken cancellationToken)
@@ -51,7 +54,7 @@ public sealed class DependencyDiagnosticsService : IDependencyDiagnosticsService
                     true)
                 : new HarnessError(
                     "DSH-E222",
-                    $"全局 DSH 不是已验证版本 {DshPackageMetadata.ValidatedVersion}",
+                    $"全局 DSH 不是当前受信版本 {_trustedVersions.Current.Version}",
                     discovery.RejectedGlobalDsh.Detail,
                     true));
         }

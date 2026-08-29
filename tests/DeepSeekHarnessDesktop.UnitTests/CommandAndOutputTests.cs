@@ -14,6 +14,53 @@ public sealed class CommandAndOutputTests : IDisposable
     public CommandAndOutputTests() => Directory.CreateDirectory(_temporaryDirectory);
 
     [Fact]
+    public void NpmEnvironmentRemovalClearsAllConfigVariantsAndTokens()
+    {
+        const string configName = "NpM_ConFiG_Registry";
+        const string tokenName = "NODE_AUTH_TOKEN";
+        var oldConfig = Environment.GetEnvironmentVariable(configName);
+        var oldToken = Environment.GetEnvironmentVariable(tokenName);
+        try
+        {
+            var environment = ProcessEnvironmentPolicy.Apply(
+                new Dictionary<string, string>
+                {
+                    [configName] = "https://malicious.invalid",
+                    [tokenName] = "secret",
+                },
+                new Dictionary<string, string> { ["SAFE_VALUE"] = "1" },
+                [tokenName],
+                ["NPM_CONFIG_"]);
+
+            Assert.False(environment.ContainsKey(configName));
+            Assert.False(environment.ContainsKey(tokenName));
+            Assert.Equal("1", environment["SAFE_VALUE"]);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(configName, oldConfig);
+            Environment.SetEnvironmentVariable(tokenName, oldToken);
+        }
+    }
+
+    [Fact]
+    public void LockedNpmArgumentsFixRegistryConfigCacheAndScriptPolicy()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "npm-policy-test");
+        var arguments = NpmCommandLineBuilder.CreateLockedInstallArguments(
+            Path.Combine(root, "cache"),
+            Path.Combine(root, "user.npmrc"),
+            Path.Combine(root, "global.npmrc"));
+
+        Assert.Contains("--ignore-scripts", arguments);
+        Assert.Contains("--registry=https://registry.npmjs.org", arguments);
+        Assert.Contains("--offline=false", arguments);
+        Assert.Contains("--replace-registry-host=always", arguments);
+        Assert.Contains(arguments, value => value.StartsWith("--userconfig=", StringComparison.Ordinal));
+        Assert.Contains(arguments, value => value.StartsWith("--globalconfig=", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ResolverPrefersGlobalDshInAutoMode()
     {
         CreateFile("dsh.cmd");
@@ -27,7 +74,7 @@ public sealed class CommandAndOutputTests : IDisposable
         var options = await resolver.ResolveAsync(CreateSettings(), CancellationToken.None);
 
         Assert.EndsWith("dsh.cmd", options.ExecutablePath, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(["web"], options.Arguments);
+        Assert.Equal(["web", "--no-open"], options.Arguments);
     }
 
     [Fact]
@@ -36,9 +83,11 @@ public sealed class CommandAndOutputTests : IDisposable
         CreateFile("node.exe");
         CreateFile("npm.cmd");
         CreateFile("npx.cmd");
-        var resolver = new DshCommandResolver(
-            _ => _temporaryDirectory,
+        var discovery = new DshCandidateDiscoveryService(
+            new EnvironmentPathProvider((_, _) => _temporaryDirectory),
+            new FixedPrivateStore(null),
             new NpxDshCacheLocator(() => Path.Combine(_temporaryDirectory, "empty-cache")));
+        var resolver = new DshCommandResolver(discovery: discovery);
 
         var exception = await Assert.ThrowsAsync<HarnessException>(() => resolver.ResolveAsync(
             CreateSettings(),
@@ -55,14 +104,16 @@ public sealed class CommandAndOutputTests : IDisposable
         CreateFile("npx.cmd");
         var cacheRoot = Path.Combine(_temporaryDirectory, "cache", "_npx");
         var entryPoint = CreateCachedDsh(cacheRoot, "valid", DshPackageMetadata.ValidatedVersion, "lib/bin.js");
-        var resolver = new DshCommandResolver(
-            _ => _temporaryDirectory,
+        var discovery = new DshCandidateDiscoveryService(
+            new EnvironmentPathProvider((_, _) => _temporaryDirectory),
+            new FixedPrivateStore(null),
             new NpxDshCacheLocator(() => cacheRoot));
+        var resolver = new DshCommandResolver(discovery: discovery);
 
         var options = await resolver.ResolveAsync(CreateSettings(), CancellationToken.None);
 
         Assert.Equal(node, options.ExecutablePath, ignoreCase: true);
-        Assert.Equal([entryPoint, "web"], options.Arguments);
+        Assert.Equal([entryPoint, "web", "--no-open"], options.Arguments);
     }
 
     [Fact]
@@ -133,7 +184,7 @@ public sealed class CommandAndOutputTests : IDisposable
 
         var options = await resolver.ResolveAsync(settings, CancellationToken.None);
 
-        Assert.Equal(["web", "--port", "65535"], options.Arguments);
+        Assert.Equal(["web", "--no-open", "--port", "65535"], options.Arguments);
     }
 
     [Fact]
@@ -160,7 +211,11 @@ public sealed class CommandAndOutputTests : IDisposable
         Directory.CreateDirectory(directory);
         var script = Path.Combine(directory, "dsh.cmd");
         File.WriteAllText(script, "@echo CMD_BUILDER_OK\r\n");
-        var startInfo = CmdCommandLineBuilder.Build(script, ["web"], _temporaryDirectory, new Dictionary<string, string>());
+        var startInfo = CmdCommandLineBuilder.Build(
+            script,
+            ["web", "--no-open"],
+            _temporaryDirectory,
+            new Dictionary<string, string>());
 
         using var process = Process.Start(startInfo)!;
         var output = await process.StandardOutput.ReadToEndAsync();
@@ -177,6 +232,15 @@ public sealed class CommandAndOutputTests : IDisposable
 
         Assert.Throws<ArgumentException>(() => CmdCommandLineBuilder.Build(
             script, ["web", "&", "whoami"], _temporaryDirectory, new Dictionary<string, string>()));
+    }
+
+    [Fact]
+    public void CmdBuilderRejectsTemplateThatOpensDefaultBrowser()
+    {
+        var script = CreateFile("dsh.cmd");
+
+        Assert.Throws<ArgumentException>(() => CmdCommandLineBuilder.Build(
+            script, ["web"], _temporaryDirectory, new Dictionary<string, string>()));
     }
 
     [Fact]
@@ -225,7 +289,10 @@ public sealed class CommandAndOutputTests : IDisposable
         var script = CreateFile("dsh.cmd");
 
         Assert.Throws<ArgumentException>(() => CmdCommandLineBuilder.Build(
-            script, ["web", "--port", port], _temporaryDirectory, new Dictionary<string, string>()));
+            script,
+            ["web", "--no-open", "--port", port],
+            _temporaryDirectory,
+            new Dictionary<string, string>()));
     }
 
     [Theory]
@@ -289,6 +356,7 @@ public sealed class CommandAndOutputTests : IDisposable
         var pathProvider = new EnvironmentPathProvider((_, _) => _temporaryDirectory);
         var discovery = new DshCandidateDiscoveryService(
             pathProvider,
+            new FixedPrivateStore(null),
             cacheLocator: new NpxDshCacheLocator(() => cacheRoot),
             versionProbe: new FixedVersionProbe(DshPackageMetadata.ValidatedVersion));
         return new DshCommandResolver(discovery: discovery);
@@ -339,6 +407,11 @@ public sealed class CommandAndOutputTests : IDisposable
 
         public Task<PrivateDshInstallTransaction> CreateTransactionAsync(CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+        public Task<PrivateDshInstallTransaction> CreateTransactionAsync(
+            DshRuntimeDescriptor descriptor,
+            string packagePath,
+            string lockPath,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<DshInstallationCandidate> CommitVersionAsync(
             PrivateDshInstallTransaction transaction,
             string nodePath,

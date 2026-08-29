@@ -108,8 +108,10 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
                     return new HealthProbeResult(HealthProbeStatus.ReachableUnknown, uri, current, "HTML response exceeds 256 KiB.");
                 }
 
+                var hasBootMarker = body.Contains("window.__DSH_BOOT__", StringComparison.Ordinal)
+                    || body.Contains("globalThis[\"__DSH_BOOT__\"]", StringComparison.Ordinal);
                 var confirmed = body.Contains("<title>DeepSeek Harness</title>", StringComparison.Ordinal)
-                    && body.Contains("window.__DSH_BOOT__", StringComparison.Ordinal);
+                    && hasBootMarker;
                 return new HealthProbeResult(
                     confirmed ? HealthProbeStatus.DshConfirmed : HealthProbeStatus.ReachableUnknown,
                     uri,

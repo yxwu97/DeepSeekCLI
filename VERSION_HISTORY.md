@@ -2,6 +2,23 @@
 
 本项目使用语义化版本号 `主版本.次版本.修订号`。每次修改系统代码、配置、构建流程或用户文档后，必须先递增 `Directory.Build.props` 中的 `AppVersion`，并在本文件顶部追加对应版本记录。普通兼容性修改默认递增修订号；新增兼容功能递增次版本号；不兼容变更递增主版本号。
 
+## [0.11.1] - 2026-08-29
+
+### 变更
+
+- Desktop 的 Auto 启动命令固定追加 `--no-open`，DSH 就绪后只在应用内 WebView2 加载页面，不再自动调用系统默认浏览器打开本机服务地址。
+- Windows 集成测试改为程序集内串行执行，并为真实进程启动与回收使用独立观察期限，避免 Job Object、输出管道与临时目录用例在慢速机器上造成发布门禁偶发失败。
+
+## [0.11.0] - 2026-08-29
+
+### 变更
+
+- Bootstrap DSH 升级为 `@deepseek-ai/dsh@0.1.1-rc.2`；完整锁图将循环 peer 以精确根依赖固定，并用精确 override 将 `use-sync-external-store` 的旧 React peer 绑定到已锁定 React 19，标准 `npm ci --omit=dev --ignore-scripts`、固定入口版本和真实 Web 身份 smoke 均已通过。
+- 新增受信运行时描述符与原子选择状态，候选发现、私有 Store、npx cache、诊断、确认和 UI 不再把编译期 Bootstrap 常量当作永久运行版本；旧 rc.7 目录保留但不会冒充当前版本。
+- 关于窗口新增用户确认后的“下载并更新”，复用现有 Owned 生命周期、Job Object、安装后 smoke 和原子激活；External 实例不会被停止。
+- npm 安装清除继承的 Token 与全部 `NPM_CONFIG_*`，拒绝项目 `.npmrc`，固定官方 registry、空 user/global config、独立 cache 和禁用 lifecycle scripts。
+- 新增 RSA-3072/SHA-256 detached catalog 验签、受限 JSON parser、sequence 防回放、验签缓存、固定源资产 hash 下载、N+1 安装协调器和仓库外私钥发布脚本，统一 `DSH-E223` 至 `DSH-E227` 更新错误语义；生产 catalog 启用仍需在受控签名环境配置正式公钥、固定端点与发布资产。
+
 ## [0.10.3] - 2026-08-22
 
 ### 变更

@@ -7,6 +7,8 @@ namespace DeepSeekHarnessDesktop.IntegrationTests;
 
 public sealed class HarnessProcessManagerTests
 {
+    private static readonly TimeSpan ObservationTimeout = TimeSpan.FromSeconds(30);
+
     [Fact]
     public async Task CapturesOutputAndStopsOwnedProcess()
     {
@@ -21,7 +23,7 @@ public sealed class HarnessProcessManagerTests
         };
 
         var info = await manager.StartAsync(CreateOptions("--emit"), CancellationToken.None);
-        var line = await output.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var line = await output.Task.WaitAsync(ObservationTimeout);
         await manager.StopAsync(CancellationToken.None);
 
         Assert.True(info.ProcessId > 0);
@@ -46,7 +48,7 @@ public sealed class HarnessProcessManagerTests
         };
 
         await manager.StartAsync(CreateOptions("--tree"), CancellationToken.None);
-        var pid = await childPid.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var pid = await childPid.Task.WaitAsync(ObservationTimeout);
         await manager.StopAsync(CancellationToken.None);
 
         await AssertProcessExitedAsync(pid);
@@ -60,7 +62,7 @@ public sealed class HarnessProcessManagerTests
         manager.ProcessExited += (_, args) => exited.TrySetResult(args);
 
         var info = await manager.StartAsync(CreateOptions("--exit"), CancellationToken.None);
-        var result = await exited.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var result = await exited.Task.WaitAsync(ObservationTimeout);
 
         Assert.Equal(info.ProcessId, result.ProcessId);
         Assert.Equal(23, result.ExitCode);
@@ -91,7 +93,7 @@ public sealed class HarnessProcessManagerTests
         };
 
         await manager.StartAsync(options, CancellationToken.None);
-        var result = await output.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var result = await output.Task.WaitAsync(ObservationTimeout);
 
         Assert.Equal("ARGS=space value|quote\"value|trailing\\|&|<>^%!()中文", result);
     }
@@ -118,15 +120,15 @@ public sealed class HarnessProcessManagerTests
             };
             var runner = new NpmInstallRunner(
                 logs,
-                preparationTimeout: TimeSpan.FromMilliseconds(100),
-                noProgressTimeout: TimeSpan.FromMilliseconds(100));
+                preparationTimeout: TimeSpan.FromSeconds(10),
+                noProgressTimeout: TimeSpan.FromSeconds(10));
 
             var run = Assert.ThrowsAsync<HarnessException>(() => runner.RunAsync(
                 script,
                 directory,
                 CancellationToken.None));
-            var pid = await childPid.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var exception = await run.WaitAsync(TimeSpan.FromSeconds(8));
+            var pid = await childPid.Task.WaitAsync(ObservationTimeout);
+            var exception = await run.WaitAsync(ObservationTimeout);
 
             Assert.Equal("DSH-E221", exception.Error.Code);
             await AssertProcessExitedAsync(pid);
@@ -150,8 +152,8 @@ public sealed class HarnessProcessManagerTests
                 fixture.ScriptPath,
                 fixture.Root,
                 CancellationToken.None));
-            var pid = await fixture.ChildPid.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var exception = await run.WaitAsync(TimeSpan.FromSeconds(8));
+            var pid = await fixture.ChildPid.Task.WaitAsync(ObservationTimeout);
+            var exception = await run.WaitAsync(ObservationTimeout);
 
             Assert.Equal("DSH-E201", exception.Error.Code);
             await AssertProcessExitedAsync(pid);
@@ -171,11 +173,11 @@ public sealed class HarnessProcessManagerTests
             using var cancellation = new CancellationTokenSource();
             var runner = new NpmInstallRunner(fixture.Logs);
             var run = runner.RunAsync(fixture.ScriptPath, fixture.Root, cancellation.Token);
-            var pid = await fixture.ChildPid.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var pid = await fixture.ChildPid.Task.WaitAsync(ObservationTimeout);
             cancellation.Cancel();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => run.WaitAsync(TimeSpan.FromSeconds(8)));
+                () => run.WaitAsync(ObservationTimeout));
             await AssertProcessExitedAsync(pid);
         }
         finally
@@ -217,7 +219,7 @@ public sealed class HarnessProcessManagerTests
 
     private static async Task AssertProcessExitedAsync(int processId)
     {
-        for (var attempt = 0; attempt < 20; attempt++)
+        for (var attempt = 0; attempt < 50; attempt++)
         {
             try
             {

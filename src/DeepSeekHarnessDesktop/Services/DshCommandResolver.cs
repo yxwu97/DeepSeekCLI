@@ -74,14 +74,14 @@ public sealed class DshCommandResolver : IDshCommandResolver
 
     private static IReadOnlyList<string> BuildDshArguments(Uri serviceUri)
     {
-        var arguments = new List<string> { "web" };
+        var arguments = new List<string> { "web", "--no-open" };
         AppendPortIfNeeded(arguments, serviceUri);
         return arguments;
     }
 
     private static IReadOnlyList<string> BuildCachedDshArguments(string entryPointPath, Uri serviceUri)
     {
-        var arguments = new List<string> { entryPointPath, "web" };
+        var arguments = new List<string> { entryPointPath, "web", "--no-open" };
         AppendPortIfNeeded(arguments, serviceUri);
         return arguments;
     }

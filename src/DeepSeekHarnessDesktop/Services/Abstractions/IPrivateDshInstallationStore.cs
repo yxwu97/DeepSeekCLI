@@ -8,6 +8,11 @@ public interface IPrivateDshInstallationStore
         string? nodePath,
         CancellationToken cancellationToken);
     Task<PrivateDshInstallTransaction> CreateTransactionAsync(CancellationToken cancellationToken);
+    Task<PrivateDshInstallTransaction> CreateTransactionAsync(
+        DshRuntimeDescriptor descriptor,
+        string packagePath,
+        string lockPath,
+        CancellationToken cancellationToken);
     Task<DshInstallationCandidate> CommitVersionAsync(
         PrivateDshInstallTransaction transaction,
         string nodePath,
