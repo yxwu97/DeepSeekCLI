@@ -93,13 +93,20 @@ else {
 }
 
 $privateDshResult = 'passed'
+$privateDshWebViewResult = 'skipped'
 if ($SkipPrivateDshSmoke) {
     $privateDshResult = 'skipped'
     Write-Warning 'Skipping real private DSH installation smoke by explicit request.'
 }
 else {
     Write-Host 'Running real private DSH installation and reuse smoke...'
-    & $validationAssembly --private-dsh-smoke
+    if ($SkipInteractiveWebView2) {
+        & $validationAssembly --private-dsh-smoke --skip-code-webview
+    }
+    else {
+        & $validationAssembly --private-dsh-smoke
+        $privateDshWebViewResult = 'passed'
+    }
     Assert-LastExitCode 'Private DSH installation smoke'
 }
 
@@ -223,6 +230,7 @@ $report = [ordered]@{
         integration = $integrationSummary
         webViewInteractive = $webViewResult
         privateDshInstallAndReuse = $privateDshResult
+        privateDshCodeWebView = $privateDshWebViewResult
     }
     artifact = [ordered]@{
         path = $zip.FullName

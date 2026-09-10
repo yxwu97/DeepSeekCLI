@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace DeepSeekHarnessDesktop.Models;
 
 public enum HealthProbeStatus
@@ -13,4 +15,5 @@ public sealed record HealthProbeResult(
     HealthProbeStatus Status,
     Uri RequestedUri,
     Uri? FinalUri = null,
-    string? Detail = null);
+    string? Detail = null,
+    HttpStatusCode? StatusCode = null);

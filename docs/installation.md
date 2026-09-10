@@ -5,7 +5,7 @@
 - Windows 10 或 Windows 11 x64。
 - .NET Framework 4.8（Windows 11 和已更新的 Windows 10 通常已内置；缺失时使用 Windows Update 或微软官方安装程序补齐）。
 - Microsoft Edge WebView2 Evergreen Runtime。
-- Node.js LTS x64（包含 npm；手动临时启动还会使用 npx）；如果 PATH 中已有可用的 `dsh.cmd`，Desktop 启动不依赖 npm。
+- Node.js LTS x64，版本范围 `>=22.19.0 <25`，推荐 Node.js 24 LTS（包含 npm；手动临时启动还会使用 npx）；如果 PATH 中已有可用的 `dsh.cmd`，Desktop 启动不依赖 npm。
 - 没有可复用 DSH 时，首次私有安装需要访问 npm registry，并占用约 300 MiB 当前用户磁盘空间。
 
 发布包是 .NET Framework 4.8 轻量 ZIP，不包含 .NET、Node.js 或 DSH，也不携带 CoreCLR。应用启动前需要系统已有 .NET Framework 4.8。
@@ -19,7 +19,7 @@
 5. 环境满足后选择工作目录，点击“准备并启动”。
 6. 如果没有任何可复用 DSH，应用会说明版本、私有安装位置和预计占用；用户确认后，以发布包内精确 lockfile 执行一次 `npm ci --omit=dev`，真实启动验证通过后才激活。
 
-应用不会静默安装系统软件，也不会自动全局安装 Node.js 或 DSH。私有安装位于 `%LOCALAPPDATA%\DeepSeekHarnessDesktop\dsh`；失败、取消或超时不会激活不完整版本。初始选择版本为精确 `@deepseek-ai/dsh@0.1.1-rc.2`；旧私有目录不会冒充当前版本，也不会被自动删除。
+应用不会静默安装系统软件，也不会自动全局安装 Node.js 或 DSH。私有安装位于 `%LOCALAPPDATA%\DeepSeekHarnessDesktop\dsh`；失败、取消或超时不会激活不完整版本。初始选择版本为精确 `@deepseek-ai/dsh@0.1.5-rc.1`；旧私有目录不会冒充当前版本，也不会被自动删除。
 
 ## 启动行为
 
@@ -31,7 +31,7 @@ Auto 模式按以下顺序解析命令：
 4. 全部缺失时，经确认执行一次私有锁定安装；安装成功后回到第 2 项。
 5. 非默认端口只追加受控的 `--port <纯数字端口>`。
 
-安装引导的“手动安装与启动”区域保留 Bootstrap 固定命令：持久全局安装 `npm install -g @deepseek-ai/dsh@0.1.1-rc.2`，以及临时外部启动 `npx @deepseek-ai/dsh@0.1.1-rc.2 web`。正式更新优先使用关于窗口的“下载并更新”，只写 Desktop 私有目录，不修改全局 npm。External DSH 正在运行时应用只提示退出后重试，不会停止外部进程。
+安装引导的“手动安装与启动”区域保留 Bootstrap 固定命令：持久全局安装 `npm install -g @deepseek-ai/dsh@0.1.5-rc.1`，以及临时外部启动 `npx @deepseek-ai/dsh@0.1.5-rc.1 web`。正式更新优先使用关于窗口的“下载并更新”，只写 Desktop 私有目录，不修改全局 npm。External DSH 正在运行时应用只提示退出后重试，不会停止外部进程。
 
 工作目录始终通过 `ProcessStartInfo.WorkingDirectory` 传递，不拼接到 Shell 命令。自定义启动模式只接受已存在的原生 `.exe` 或 `.com`，不接受 `.cmd`、`.bat` 或任意 Shell 文本。
 
@@ -43,13 +43,15 @@ Auto 模式启动的 DSH 就绪后只在应用内 Code WebView2 加载服务页�
 
 默认服务地址为 `http://127.0.0.1:3080/`，只接受绝对 loopback HTTP(S) 地址。端口可访问并不等于 DSH 可用；应用还会检查 HTTP 状态、页面标题和 DSH 身份标记。
 
+DSH `0.1.5-rc.1` 使用进程认证 URL。Desktop 只接收自己创建的 DSH 进程输出的同源认证公告，令牌仅保留在内存，日志显示为 `[REDACTED]`。HTTP 探测使用临时 Cookie 会话，Code WebView2 独立完成认证并回到不带令牌的根地址。启动阶段的临时 404/401 会在现有期限内重试，仍须通过 HTML 双身份检查。若手动启动的外部 DSH 返回 401，Desktop 不读取其令牌或 Cookie；请自行退出外部实例后使用 Auto 启动。
+
 Code WebView2 只导航到已确认 DSH 地址的同源页面。Chat 只允许精确的 `https://chat.deepseek.com:443`，并使用独立 profile；权限默认拒绝、下载默认取消。其他安全 HTTP(S) 链接交给系统浏览器。
 
 ## 版本信息
 
 “关于”窗口分别显示实际 DSH、当前选择版本和 npm `latest`。npm latest 只用于发现；未进入有效签名目录的版本只显示“等待验证”，不能生成安装命令。下载必须由用户点击并确认，npm 使用官方 registry、空 user/global config、独立 cache 和 `--ignore-scripts`，安装后通过固定入口与 loopback Web 身份 smoke 才激活。
 
-当前 0.11.1 开发构建尚未配置生产 catalog 公钥和固定发布端点，因此远程目录检查以 `DSH-E226` 失败关闭；这不会影响内置 rc.2 的首次私有安装和复用。正式发布无代码 N+1 前必须由维护方完成生产信任根、签名资产和未重编译 Desktop 的更新演练，用户不能自行配置更新源或公钥绕过该门禁。
+当前 0.12.0 构建尚未配置生产 catalog 公钥和固定发布端点，因此远程目录检查以 `DSH-E226` 失败关闭；这不会影响内置 `0.1.5-rc.1` 的首次私有安装和复用。正式发布无代码 N+1 前必须由维护方完成生产信任根、签名资产和未重编译 Desktop 的更新演练，用户不能自行配置更新源或公钥绕过该门禁。
 
 ## 本地数据
 

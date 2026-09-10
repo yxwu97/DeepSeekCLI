@@ -19,7 +19,8 @@ public partial class App : Application
         if (e.Args.Contains("--private-dsh-smoke", StringComparer.OrdinalIgnoreCase))
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            var exitCode = await Phase0Runner.RunPrivateDshSmokeAsync();
+            var exitCode = await Phase0Runner.RunPrivateDshSmokeAsync(
+                !e.Args.Contains("--skip-code-webview", StringComparer.OrdinalIgnoreCase));
             Shutdown(exitCode);
             return;
         }

@@ -151,6 +151,8 @@ public sealed class CommandAndOutputTests : IDisposable
     [InlineData("0.1.0-rc.6")]
     [InlineData("0.1.0-rc.8")]
     [InlineData("0.1.0")]
+    [InlineData("0.1.1-rc.2")]
+    [InlineData("0.1.5-rc.2")]
     public async Task DiscoveryRejectsUnvalidatedGlobalAndFallsBackToValidatedPrivate(string globalVersion)
     {
         var node = CreateFile("node.exe");

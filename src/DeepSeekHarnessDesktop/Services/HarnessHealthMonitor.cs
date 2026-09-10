@@ -14,11 +14,14 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
     public const int MaximumRedirects = 5;
     private readonly HttpClient _client;
     private readonly bool _ownsClient;
+    private readonly IDshBrowserSession? _browserSession;
+    private Uri? _authenticatedOrigin;
 
-    public HarnessHealthMonitor()
+    public HarnessHealthMonitor(IDshBrowserSession? browserSession = null)
     {
         _client = new HttpClient(CreateLoopbackHandler());
         _ownsClient = true;
+        _browserSession = browserSession;
     }
 
     public static HttpClientHandler CreateLoopbackHandler() => new()
@@ -51,6 +54,12 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
 
         try
         {
+            if (_browserSession?.GetAuthenticationUri(uri) is { } authenticationUri)
+            {
+                var authenticationOrigin = new UriBuilder(authenticationUri) { Query = string.Empty }.Uri;
+                var result = await ProbeAuthenticatedAsync(authenticationOrigin, authenticationUri, timeout, timeoutCts.Token);
+                return result with { RequestedUri = uri };
+            }
             for (var redirects = 0; ; redirects++)
             {
                 if (!visited.Add(current.AbsoluteUri))
@@ -84,7 +93,9 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
                         return new HealthProbeResult(HealthProbeStatus.InvalidUri, uri, current, exception.Message);
                     }
 
-                    if (!ServiceUriValidator.IsAllowedLoopbackTarget(next))
+                    if (!ServiceUriValidator.IsAllowedLoopbackTarget(next)
+                        || (_authenticatedOrigin is not null
+                            && !CodeWebViewService.IsSameOrigin(next, _authenticatedOrigin)))
                     {
                         return new HealthProbeResult(HealthProbeStatus.ExternalRedirect, uri, next, "Redirect target is outside loopback HTTP(S).");
                     }
@@ -99,7 +110,8 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
                         HealthProbeStatus.ReachableUnknown,
                         uri,
                         current,
-                        $"HTTP {(int)response.StatusCode} or non-HTML response.");
+                        $"HTTP {(int)response.StatusCode} or non-HTML response.",
+                        response.StatusCode);
                 }
 
                 var body = await ReadBoundedBodyAsync(response.Content, timeoutCts.Token);
@@ -125,7 +137,7 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
         }
         catch (HttpRequestException exception)
         {
-            return new HealthProbeResult(HealthProbeStatus.Unreachable, uri, Detail: exception.Message);
+            return new HealthProbeResult(HealthProbeStatus.Unreachable, uri, Detail: $"HTTP probe failed: {exception.GetType().Name}.");
         }
         catch (IOException exception)
         {
@@ -152,7 +164,9 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
             }
 
             last = await ProbeAsync(uriProvider(), timeout, cancellationToken);
-            if (last.Status != HealthProbeStatus.Unreachable)
+            if (last.Status != HealthProbeStatus.Unreachable
+                && !(last.Status == HealthProbeStatus.ReachableUnknown
+                    && last.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Unauthorized))
             {
                 return last;
             }
@@ -168,7 +182,31 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
         }
 
         var requested = last?.RequestedUri ?? uriProvider();
+        if (last?.Status == HealthProbeStatus.ReachableUnknown) return last;
         return new HealthProbeResult(HealthProbeStatus.Unreachable, requested, Detail: "Startup timeout elapsed.");
+    }
+
+    private static async Task<HealthProbeResult> ProbeAuthenticatedAsync(
+        Uri origin, Uri authenticationUri, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        // The HTTP probe owns a short-lived cookie jar; Code WebView2 performs its own exchange.
+        using var handler = CreateLoopbackHandler();
+        handler.UseCookies = true;
+        handler.CookieContainer = new CookieContainer();
+        using var client = new HttpClient(handler);
+        using (var response = await client.GetAsync(authenticationUri, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+        {
+            var location = response.Headers.Location;
+            if (response.StatusCode != HttpStatusCode.SeeOther || location is null
+                || !Uri.TryCreate(origin, location, out var target)
+                || target != origin)
+            {
+                return new HealthProbeResult(HealthProbeStatus.ReachableUnknown, origin, origin,
+                    "DSH browser authentication did not return the clean same-origin root.", response.StatusCode);
+            }
+        }
+        using var monitor = new HarnessHealthMonitor(client) { _authenticatedOrigin = origin };
+        return await monitor.ProbeAsync(origin, timeout, cancellationToken);
     }
 
     private static bool IsRedirect(HttpStatusCode statusCode) => statusCode is

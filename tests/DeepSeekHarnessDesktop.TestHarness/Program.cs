@@ -22,6 +22,11 @@ internal static class Program
             case "--exit":
                 Console.Error.WriteLine("fixture immediate exit");
                 return 23;
+            case "--auth-url":
+                Console.WriteLine($"dsh web: http://127.0.0.1:3080/?token={new string('a', 43)}");
+                Console.Out.Flush();
+                await Task.Delay(TimeSpan.FromSeconds(30));
+                return 0;
             case "--crash":
                 Console.WriteLine("server http://127.0.0.1:43123/");
                 Console.Out.Flush();

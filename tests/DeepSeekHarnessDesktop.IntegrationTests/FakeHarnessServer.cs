@@ -21,6 +21,7 @@ internal sealed class FakeHarnessServer : IAsyncDisposable
 
     public Uri BaseUri { get; }
     public Func<string, FakeResponse> Handler { get; set; }
+    public Func<string, IReadOnlyDictionary<string, string>, FakeResponse>? RequestHandler { get; set; }
 
     private async Task RunAsync()
     {
@@ -47,11 +48,14 @@ internal sealed class FakeHarnessServer : IAsyncDisposable
                 using var reader = new StreamReader(stream, Encoding.ASCII, true, 1024, leaveOpen: true);
                 var requestLine = await reader.ReadLineAsync().WaitAsync(_cts.Token);
                 var path = requestLine?.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(1) ?? "/";
-                while (!string.IsNullOrEmpty(await reader.ReadLineAsync().WaitAsync(_cts.Token)))
+                var requestHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                while (await reader.ReadLineAsync().WaitAsync(_cts.Token) is { Length: > 0 } header)
                 {
+                    var separator = header.IndexOf(':');
+                    if (separator > 0) requestHeaders[header.Substring(0, separator)] = header.Substring(separator + 1).Trim();
                 }
 
-                var response = Handler(path);
+                var response = RequestHandler?.Invoke(path, requestHeaders) ?? Handler(path);
                 if (response.Delay > TimeSpan.Zero)
                 {
                     await Task.Delay(response.Delay, _cts.Token);
@@ -65,6 +69,10 @@ internal sealed class FakeHarnessServer : IAsyncDisposable
                 if (response.Location is not null)
                 {
                     headers.Append("Location: ").Append(response.Location).Append("\r\n");
+                }
+                if (response.SetCookie is not null)
+                {
+                    headers.Append("Set-Cookie: ").Append(response.SetCookie).Append("\r\n");
                 }
                 headers.Append("\r\n");
                 var headerBytes = Encoding.ASCII.GetBytes(headers.ToString());
@@ -100,4 +108,5 @@ internal sealed record FakeResponse(
     string ContentType = "text/html; charset=utf-8",
     string Body = "<title>DeepSeek Harness</title><script>window.__DSH_BOOT__={};</script>",
     string? Location = null,
-    TimeSpan Delay = default);
+    TimeSpan Delay = default,
+    string? SetCookie = null);

@@ -71,12 +71,13 @@ DeepSeek Harness Desktop 是面向 Windows 10/11 x64 的原生桌面宿主。应
 - net48 原生进程参数必须逐项经过仓库兼容层的 Windows 命令行转义；`.cmd` 仅通过 `CmdCommandLineBuilder` 的受控路径执行，不允许接收未经验证的用户 Shell 文本。
 - 自定义启动模式只接受已存在的 `.exe` 或 `.com`；不要在未补齐威胁模型和测试前放宽到 `.cmd`、`.bat` 或任意命令行。
 - Auto 启动依次使用 PATH 中可执行的 `dsh.cmd`、Desktop 已激活私有安装、当前用户 npm `_npx` 缓存中经固定包名/版本/bin 映射校验的 DSH。私有或缓存命中时通过 PATH 中的 `node.exe` 直接执行固定 `lib/bin.js`、`web` 和可选纯数字端口参数，不运行 npm/npx，不访问 registry。
-- Auto 初始受信版本为 Bootstrap `@deepseek-ai/dsh@0.1.1-rc.2`，后续只能切换到有效签名目录批准且兼容当前运行协议的精确版本；npm `latest` 只读发现，不能直接成为安装目标。全局 `dsh.cmd` 必须以有限时 `--version` 精确匹配当前选择版本；版本不符或探测失败时继续查找私有/缓存候选。缓存发现只允许枚举标准 `_npx` 根的直接子目录，不硬编码 cache id，不接受 manifest 提供的任意入口。不得自动全局安装 Node.js/DSH，也不得接受用户包名、版本、registry 或 Shell 参数；用户确认后只能使用受信 package/lock 执行私有 `npm ci --omit=dev --ignore-scripts`，隔离 `.npmrc` 与危险 npm 环境，真实 smoke 通过后才原子激活。
+- Auto 初始受信版本为 Bootstrap `@deepseek-ai/dsh@0.1.5-rc.1`，后续只能切换到有效签名目录批准且兼容当前运行协议的精确版本；npm `latest` 只读发现，不能直接成为安装目标。全局 `dsh.cmd` 必须以有限时 `--version` 精确匹配当前选择版本；版本不符或探测失败时继续查找私有/缓存候选。缓存发现只允许枚举标准 `_npx` 根的直接子目录，不硬编码 cache id，不接受 manifest 提供的任意入口。不得自动全局安装 Node.js/DSH，也不得接受用户包名、版本、registry 或 Shell 参数；用户确认后只能使用受信 package/lock 执行私有 `npm ci --omit=dev --ignore-scripts`，隔离 `.npmrc` 与危险 npm 环境，真实 smoke 通过后才原子激活。
 - 固定全局安装与手动 npx 启动入口必须保留；Desktop 只复制固定命令并打开可见 PowerShell，不自动执行。缺少 WebView2、Node.js 或 npm 时，安装引导一次只展示当前缺失项并打开官方页面，返回应用后重新检查系统与用户 PATH。
 
 ### 5.4 服务身份与 WebView2
 
 - 默认服务地址必须是 loopback。端口可访问不等于 DSH 可用；加载或认定外部实例前必须验证 HTTP 状态、HTML 内容和 DSH 身份标记。
+- DSH 浏览器认证令牌仅从当前 Owned 进程标准输出的固定公告接收，绑定其已校验 loopback 源、仅存内存并随进程退出清除；先脱敏再发布输出事件或写入日志。HTTP 探测使用独立临时 Cookie 会话，认证跳转不得跨源；Code WebView2 自行交换 Cookie，不读取或复制浏览器 Cookie，不向 Chat 传递令牌。localhost / IPv6 配置只可规范化到同 scheme/端口的官方 IPv4 公告源，不能将令牌发送到别名地址。
 - Code WebView2 的重定向只能在 loopback 地址之间进行，主导航必须与已确认 DSH 地址同源；禁止加载远程地址、带用户信息的 URL 或身份不明的本机服务。
 - Chat WebView2 只允许精确的 `https://chat.deepseek.com:443` origin，使用固定 `Chat` profile 且不与 Code 共享 profile。新增登录、验证码或其他远程 origin 前必须有真实流程证据、逐项常量、相邻恶意域名测试和安全评审，禁止通配符。
 - 非内嵌 HTTP(S) 链接交给受控系统浏览器服务；危险协议直接拒绝。Chat 权限默认拒绝、下载默认取消，不读取或复制 Cookie、Token、密码、DOM、消息、站点存储或网络正文。

@@ -5,7 +5,7 @@
 - 项目名称：DeepSeek Harness Desktop
 - 目标平台：Windows 10/11 x64
 - 文档版本：0.9
-- 更新日期：2026-08-21
+- 更新日期：2026-09-10
 - 项目目录：`E:\DeepSeekCLI`
 - 官方文档：<https://deepseek-harness.github.io/deepseek-harness/guide/quickstart>
 - 官方仓库：<https://github.com/deepseek-ai/deepseek-harness>
@@ -45,7 +45,7 @@
 
 Desktop 0.10 发布为 .NET Framework 4.8 轻量宿主，不携带 CoreCLR、Node 或 DSH。应用启动后检查 WebView2、Node.js/npm 和 DSH；Auto 依次选择版本探测通过的全局 `dsh.cmd`、Desktop 私有安装和严格校验的当前用户 npx 缓存。全部缺失时才经用户确认，以发布包内精确 lockfile 执行一次私有安装。
 
-当前开发机环境：
+2026-08-21 开发机环境记录（当前 Bootstrap 见第 23 节）：
 
 - Node.js：`v24.15.0`
 - npm：`11.12.1`
@@ -58,10 +58,10 @@ Desktop 0.10 发布为 .NET Framework 4.8 轻量宿主，不携带 CoreCLR、Nod
 用户手动更新全局 DSH 时使用以下固定命令；Desktop 只复制命令并打开可见 PowerShell：
 
 ```powershell
-npm install -g @deepseek-ai/dsh@0.1.0-rc.7
+npm install -g @deepseek-ai/dsh@0.1.5-rc.1
 ```
 
-全局候选必须在 3 秒内通过受控 `dsh.cmd --version` 探测并精确返回 rc.7。客户端只枚举标准 `_npx` 根的直接子目录，并仅接受固定包名、固定版本、固定 `lib/bin.js` 映射和真实入口文件；缓存 id、包名、版本和入口均不能由用户配置。不自动全局安装软件，也不接受用户包名或任意 Shell 参数。
+全局候选必须在 3 秒内通过受控 `dsh.cmd --version` 探测并精确返回当前受信版本（Bootstrap 为 `0.1.5-rc.1`）。客户端只枚举标准 `_npx` 根的直接子目录，并仅接受固定包名、固定版本、固定 `lib/bin.js` 映射和真实入口文件；缓存 id、包名、版本和入口均不能由用户配置。不自动全局安装软件，也不接受用户包名或任意 Shell 参数。
 
 ### 3.1 本地开发启动
 
@@ -553,3 +553,10 @@ npx.cmd -y @deepseek-ai/dsh@0.1.0-rc.6 web --port <1-65535>
 - catalog 资产下载到唯一受控目录并流式核对精确 bytes/SHA-256。安装事务携带目标 descriptor，依次通过 npm ci、Store graph、固定入口和真实 Web smoke；最终先切 active、再切 selected，提交区间不响应用户取消。Owned 先停止并在失败时尝试恢复旧版本，External 不参与更新。
 - `eng/dsh-catalog/New-DshCatalog.ps1` 只接受证书存储私钥或仓库外 PFX，生成无 BOM catalog 与原始 detached signature。当前源码没有生产公钥和已冻结端点，因此 DI 使用 fail-closed catalog 服务；Bootstrap rc.2 可用，但无代码 N+1 必须在正式信任根进入 Bootstrap 后才能启用。
 - `DSH-E223` 至 `DSH-E227` 分别固定表示资源错配、激活前校验、smoke、catalog 信任和协议兼容失败。生产 catalog 私钥只允许存在于受控签名环境。
+
+## 23. Desktop 0.12.0 DSH 0.1.5-rc.1
+
+- Bootstrap、固定手动命令和发布资源更新为 `@deepseek-ai/dsh@0.1.5-rc.1`。231 个 DSH 系列包以精确根依赖锁定，覆盖循环 peer 并防止范围依赖漂移；完整 npm lockfile 及其 SHA-256 是安装证据。
+- 完整锁图中的 `undici`、`@earendil-works/pi-ai` 和 `pi-telemetry` 要求 Node.js 至少 `22.19.0`；受信范围更新为 `>=22.19.0 <25`，推荐 Node.js 24 LTS。
+- Auto 继续使用固定 `lib/bin.js web --no-open` 和可选纯数字端口。npm latest 仍只读，生产签名目录仍未配置；本次通过 Desktop 内置资源更新提供新版本。
+- 新版先监听端口再注册页面，且根页面需要进程令牌认证。`DshBrowserSession` 只在当前 Owned 进程存活期间接收同源标准输出公告；HTTP 探测使用独立 CookieContainer 并禁止认证跨源跳转，Code WebView2 独立交换 Cookie。启动 404/401 有限重试，最终仍要求原有标题与 boot 标记；详细安全约束见详细设计第 37 节。

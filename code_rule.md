@@ -55,7 +55,7 @@
 - 扩展允许的字符或参数前，必须补充空格、引号、`& | < > ^ % ! ( )` 和中文路径测试，证明不存在命令注入或转义回归。
 - Owned 进程启动后立即加入 Job Object 并异步读取 stdout/stderr；必须处理“启动后立即退出”和“订阅前退出”的竞态。
 - 停止操作针对已跟踪的 Owned 进程树，带有限超时并确保最终释放；不得扫描端口后结束不明 PID。
-- Auto 启动只允许精确 rc.7：PATH 中的 `dsh.cmd` 先经过有限时版本探测，Desktop 私有安装和标准 `_npx` 缓存继续校验固定包名/版本/bin/入口；不匹配的全局候选不得遮挡后续候选，命中后不得运行 npm/npx 或访问 registry。
+- Auto 启动只允许当前受信精确版本（Bootstrap 为 `0.1.5-rc.1`）：PATH 中的 `dsh.cmd` 先经过有限时版本探测，Desktop 私有安装和标准 `_npx` 缓存继续校验固定包名/版本/bin/入口；不匹配的全局候选不得遮挡后续候选，命中后不得运行 npm/npx 或访问 registry。
 - 全部候选缺失时，仅在用户确认后用发布包内精确 package/lockfile 执行受控 `npm ci --omit=dev` 到当前用户私有 staging；真实 DSH smoke 通过后才原子激活。生产 builder 不保留动态 npx 回退，不接受用户包名、任意 Shell 文本或额外 npm 参数。
 - 缓存发现只枚举标准 `_npx` 根的直接子目录并限制候选数量，不硬编码 cache id，不执行 manifest 指定的任意入口。包名或版本变化时同步解析器、完整 lock 图门禁、锁定资源、npm 错误分类、文档和版本记录；不得用 npm `latest` 动态改变生产版本。
 - net48 发布包不得夹带 CoreCLR、Node、npm、npx、DSH 缓存或用户数据；发布门禁必须限制 ZIP 和主 EXE 体积。

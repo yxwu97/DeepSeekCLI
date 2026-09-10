@@ -11,6 +11,7 @@ public sealed class CodeWebViewService : ICodeWebViewService, IAsyncDisposable
     private readonly AppSettings _settings;
     private readonly IWebViewEnvironmentProvider _environmentProvider;
     private readonly IExternalLinkLauncher _linkLauncher;
+    private readonly IDshBrowserSession? _browserSession;
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly CancellationTokenSource _lifetimeCts = new();
     private WebView2? _browser;
@@ -22,11 +23,13 @@ public sealed class CodeWebViewService : ICodeWebViewService, IAsyncDisposable
     public CodeWebViewService(
         AppSettings settings,
         IWebViewEnvironmentProvider environmentProvider,
-        IExternalLinkLauncher linkLauncher)
+        IExternalLinkLauncher linkLauncher,
+        IDshBrowserSession? browserSession = null)
     {
         _settings = settings;
         _environmentProvider = environmentProvider;
         _linkLauncher = linkLauncher;
+        _browserSession = browserSession;
     }
 
     public void Attach(WebView2 browser)
@@ -72,7 +75,10 @@ public sealed class CodeWebViewService : ICodeWebViewService, IAsyncDisposable
             await WebViewDispatcher.InvokeAsync(browser.Dispatcher, () =>
             {
                 _allowedServiceUri = uri;
-                browser.CoreWebView2.Navigate(uri.AbsoluteUri);
+                var authenticationUri = _browserSession?.GetAuthenticationUri(uri);
+                var navigationUri = authenticationUri is not null && IsSameOrigin(authenticationUri, uri)
+                    ? authenticationUri : uri;
+                browser.CoreWebView2.Navigate(navigationUri.AbsoluteUri);
                 return Task.CompletedTask;
             }, linkedCts.Token);
         }
@@ -164,6 +170,7 @@ public sealed class CodeWebViewService : ICodeWebViewService, IAsyncDisposable
     {
         if (_allowedServiceUri is not null
             && Uri.TryCreate(e.Uri, UriKind.Absolute, out var target)
+            && ServiceUriValidator.IsAllowedLoopbackTarget(target)
             && IsSameOrigin(target, _allowedServiceUri))
         {
             return;

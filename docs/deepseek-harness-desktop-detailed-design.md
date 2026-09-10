@@ -1492,3 +1492,17 @@ catalog schema v1 只允许版本、兼容性和 package/lock 资产数据，不
 `DshCatalogAssetDownloader` 拒绝重定向和非固定 HTTPS host，在唯一受控目录流式限制精确 bytes 并计算 SHA-256。`DshCatalogUpdateInstaller` 把验签条目转换的 descriptor 与两份已验证资产传给 Store，按 download、npm ci、graph commit、真实 smoke、active、selected 顺序执行；active/selected 提交使用不可取消令牌。若 active 已切换而 selected 写入失败，旧 selected 会拒绝新 primary active，并可从 active backup 恢复旧版本。`DshRuntimeUpdateCoordinator` 只停止 Owned，安装失败时尝试重新启动旧选择；External 直接拒绝且 installer 零调用。
 
 公开 schema 与 `eng/dsh-catalog/New-DshCatalog.ps1` 属于独立发布面。脚本只接受当前用户证书存储中的私钥证书或仓库外 PFX，拒绝仓库内私钥路径，验证旧签名与 sequence 单调后生成无 BOM catalog 和 raw signature。当前 0.11.0 源码未获得生产公钥和冻结端点，运行时注册 `DshCatalogNotConfiguredService` 返回 `DSH-E226`；该状态不得被描述为生产 N+1 已上线。
+
+## 37. Desktop 0.12.0 Bootstrap 依赖更新
+
+2026-09-10 将 Bootstrap 更新为 `0.1.5-rc.1`，沿用运行协议 1、固定 `lib/bin.js` 和 `web --no-open [--port <数字>]`。从官方 npm 精确版本元数据收集 DSH 依赖和 peer 闭包，将 231 个 DSH 系列包提升为精确根依赖，再以标准 npm 生成完整生产锁图；不使用 `--force` 或 `--legacy-peer-deps`。`BootstrapEvidenceSha256` 随最终 lockfile 字节同步，发布门禁继续检查源码/发布资源 hash、精确版本和包内容。
+
+完整锁图中的 `undici`、`@earendil-works/pi-ai` 和 `pi-telemetry` 的 Node.js 下限为 `22.19.0`，受信描述符范围改为 `>=22.19.0 <25`。旧全局版本必须被拒绝并继续查找当前受信私有/缓存候选；旧安装目录保留。生产签名目录仍未配置，本次不启用远程更新来源。
+
+### 37.1 Owned 浏览器认证安全评审（2026-09-10）
+
+- 上游 `dsh-host-webserver` 先监听端口，fallback 注册前返回 404；`dsh-client-connection` 使用 32 字节随机数的 43 字符 base64url 进程令牌，根 URL `?token=` 交换为 HttpOnly、SameSite=Strict Cookie，再以 303 跳回 `/`。这是本次真实启动失败后的源码核对结果。
+- DI 单例 `IDshBrowserSession` 仅由 `HarnessProcessManager` 在当前进程引用校验和同步锁内更新。只接受标准输出完整 `dsh web:` 公告、与启动目标同源的 loopback 根地址、唯一且严格长度的 token；拒绝编码变体、用户信息、额外参数、片段、非根路径和相邻恶意域名。配置为 `localhost` / `[::1]` 时，仅额外接受上游公告的同 scheme、同端口 `127.0.0.1`；令牌始终发送给公告自身的源，不能复制到配置别名。身份确认后状态及 Code 导航统一使用公告源的干净根地址。令牌不进入状态快照、配置、错误或日志；输出在进入事件与 UI 缓冲区之前脱敏。失败启动和进程退出清空会话，旧输出不能覆盖新进程。
+- 健康检查使用独立短期 CookieContainer：先交换令牌，只接受 303 回到精确原始根地址，再执行原有 HTML 类型、大小、标题和 boot 标记校验；认证后的重定向不得跨 scheme/host/port。Cookie 不与 WebView2、Chat 或其他探测共享，不读取 DSH 凭据文件。外部服务的裸 401 仍不能被识别为 DSH。
+- Code WebView2 只在生命周期确认身份后，从会话取得该源的认证 URL，自行接受服务端 Cookie 并跳回干净根地址；不读取或复制浏览器 Cookie，不注入 JavaScript 或宿主对象，Chat 不参与本流程。用户配置地址仍禁止查询参数。Code 主导航额外确认无用户信息的 loopback 目标，原同源限制保留。
+- 仅 `WaitUntilReadyAsync` 对 404/401 在既有启动期限内重试，持久 404/401 返回未知身份，取消继续传播；普通 `ProbeAsync` 和运行期 watcher 不将这些状态视作健康。回归覆盖认证后仍缺少 HTML 身份、认证前后跨端口跳转零请求、输出脱敏与退出清理，以及启动取消。

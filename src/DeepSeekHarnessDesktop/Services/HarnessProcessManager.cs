@@ -8,6 +8,8 @@ namespace DeepSeekHarnessDesktop.Services;
 public sealed class HarnessProcessManager : IHarnessProcessManager
 {
     private readonly IRecentLogBuffer? _recentLogs;
+    private readonly IDshBrowserSession? _browserSession;
+    private readonly SensitiveDataRedactor _redactor = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _sync = new();
     private Process? _process;
@@ -20,9 +22,10 @@ public sealed class HarnessProcessManager : IHarnessProcessManager
     private bool _completionStarted;
     private bool _disposed;
 
-    public HarnessProcessManager(IRecentLogBuffer? recentLogs = null)
+    public HarnessProcessManager(IRecentLogBuffer? recentLogs = null, IDshBrowserSession? browserSession = null)
     {
         _recentLogs = recentLogs;
+        _browserSession = browserSession;
     }
 
     public event EventHandler<ProcessOutputEventArgs>? OutputReceived;
@@ -62,6 +65,7 @@ public sealed class HarnessProcessManager : IHarnessProcessManager
                     _launch = launch;
                     _job = job;
                     _current = info;
+                    _browserSession?.Begin(options.FallbackUri);
                     _completionStarted = false;
                     _exitSignal = new TaskCompletionSource<ProcessExitedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
                     _stdoutTask = ReadOutputAsync(process, launch.StandardOutput, ProcessOutputSource.StandardOutput);
@@ -191,8 +195,12 @@ public sealed class HarnessProcessManager : IHarnessProcessManager
             {
                 return;
             }
+            if (source == ProcessOutputSource.StandardOutput)
+            {
+                _browserSession?.CaptureOutput(line);
+            }
         }
-        var output = new ProcessOutputLine(DateTimeOffset.UtcNow, source, line);
+        var output = new ProcessOutputLine(DateTimeOffset.UtcNow, source, _redactor.Redact(line));
         _recentLogs?.Add(output);
         OutputReceived?.Invoke(this, new ProcessOutputEventArgs(output));
     }
@@ -249,6 +257,7 @@ public sealed class HarnessProcessManager : IHarnessProcessManager
             _process = null;
             _launch = null;
             _current = null;
+            _browserSession?.Clear();
             _stdoutTask = null;
             _stderrTask = null;
             _exitSignal = null;
@@ -274,6 +283,7 @@ public sealed class HarnessProcessManager : IHarnessProcessManager
             _launch = null;
             _job = null;
             _current = null;
+            _browserSession?.Clear();
             _stdoutTask = null;
             _stderrTask = null;
             _exitSignal = null;

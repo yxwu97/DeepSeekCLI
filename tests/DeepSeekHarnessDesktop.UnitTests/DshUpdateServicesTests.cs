@@ -19,28 +19,28 @@ public sealed class DshUpdateServicesTests : IDisposable
     public async Task LatestNewerThanCatalogOnlyProducesWaitingState()
     {
         var current = Descriptor(DshPackageMetadata.BootstrapVersion);
-        var catalog = Snapshot(12, Entry("0.1.1-rc.3"));
+        var catalog = Snapshot(12, Entry("0.1.5-rc.2"));
         var service = new DshUpdateCheckService(
-            new FakeReleaseService(new DshUpdateCheckResult("0.1.1-rc.4", DateTimeOffset.Now)),
+            new FakeReleaseService(new DshUpdateCheckResult("0.1.5-rc.3", DateTimeOffset.Now)),
             new FakeCatalogService(new DshCatalogLoadResult(catalog, false, DateTimeOffset.Now)),
             new FixedPolicy(current));
 
-        var result = await service.CheckAsync("0.11.0", "v24.1.0", CancellationToken.None);
+        var result = await service.CheckAsync("0.12.0", "v24.1.0", CancellationToken.None);
 
-        Assert.Equal("0.1.1-rc.3", result.CatalogUpdate!.Entry.Version);
+        Assert.Equal("0.1.5-rc.2", result.CatalogUpdate!.Entry.Version);
         Assert.True(result.WaitingForValidation);
-        Assert.Equal("0.1.1-rc.4", result.NpmLatestVersion);
+        Assert.Equal("0.1.5-rc.3", result.NpmLatestVersion);
     }
 
     [Fact]
     public void HigherIncompatibleCatalogEntryReturnsStableProtocolError()
     {
-        var entry = Entry("0.1.1-rc.3") with { RuntimeProtocol = 2 };
+        var entry = Entry("0.1.5-rc.2") with { RuntimeProtocol = 2 };
 
         var update = DshCatalogCompatibility.SelectUpdate(
             Snapshot(12, entry),
             Descriptor(DshPackageMetadata.BootstrapVersion),
-            "0.11.0",
+            "0.12.0",
             "v24.0.0",
             out var error);
 
@@ -53,7 +53,7 @@ public sealed class DshUpdateServicesTests : IDisposable
     {
         var package = System.Text.Encoding.UTF8.GetBytes("{\"name\":\"test\"}");
         var lockBytes = System.Text.Encoding.UTF8.GetBytes("{\"lockfileVersion\":3}");
-        var entry = Entry("0.1.1-rc.3") with
+        var entry = Entry("0.1.5-rc.2") with
         {
             Package = Asset("package.json", package, new string('0', 64)),
             Lock = Asset("package-lock.json", lockBytes, Sha256(lockBytes)),
@@ -70,12 +70,33 @@ public sealed class DshUpdateServicesTests : IDisposable
         Assert.Empty(Directory.EnumerateDirectories(_root));
     }
 
+    [Theory]
+    [InlineData("v20.19.0", false)]
+    [InlineData("v22.11.0", false)]
+    [InlineData("v22.12.0", false)]
+    [InlineData("v22.18.0", false)]
+    [InlineData("v22.19.0", true)]
+    [InlineData("v24.15.0", true)]
+    [InlineData("v25.0.0", false)]
+    public void CatalogUpdateHonorsNewNodeRuntimeBoundary(string nodeVersion, bool compatible)
+    {
+        var update = DshCatalogCompatibility.SelectUpdate(
+            Snapshot(12, Entry("0.1.5-rc.2")),
+            Descriptor(DshPackageMetadata.BootstrapVersion),
+            "0.12.0",
+            nodeVersion,
+            out var error);
+
+        Assert.Equal(compatible, update is not null);
+        Assert.Equal(compatible ? null : "DSH-E227", error?.Code);
+    }
+
     [Fact]
     public async Task VerifiedAssetsAreWrittenWithFixedNamesAndCanBeCleaned()
     {
         var package = System.Text.Encoding.UTF8.GetBytes("{\"name\":\"test\"}");
         var lockBytes = System.Text.Encoding.UTF8.GetBytes("{\"lockfileVersion\":3}");
-        var entry = Entry("0.1.1-rc.3") with
+        var entry = Entry("0.1.5-rc.2") with
         {
             Package = Asset("package.json", package, Sha256(package)),
             Lock = Asset("package-lock.json", lockBytes, Sha256(lockBytes)),
@@ -103,7 +124,7 @@ public sealed class DshUpdateServicesTests : IDisposable
             new FakeUpdateInstaller(calls));
 
         var exception = await Assert.ThrowsAsync<HarnessException>(() => coordinator.ApplyAsync(
-            Candidate("0.1.1-rc.3"),
+            Candidate("0.1.5-rc.2"),
             UpdateDiagnostics(),
             CancellationToken.None));
 
@@ -121,7 +142,7 @@ public sealed class DshUpdateServicesTests : IDisposable
             new FakeUpdateInstaller(calls));
 
         await coordinator.ApplyAsync(
-            Candidate("0.1.1-rc.3"),
+            Candidate("0.1.5-rc.2"),
             UpdateDiagnostics(),
             CancellationToken.None);
 
@@ -138,7 +159,7 @@ public sealed class DshUpdateServicesTests : IDisposable
             new FakeUpdateInstaller(calls) { Failure = new IOException("failed") });
 
         await Assert.ThrowsAsync<IOException>(() => coordinator.ApplyAsync(
-            Candidate("0.1.1-rc.3"),
+            Candidate("0.1.5-rc.2"),
             UpdateDiagnostics(),
             CancellationToken.None));
 
@@ -180,8 +201,8 @@ public sealed class DshUpdateServicesTests : IDisposable
             policy);
 
         await installer.InstallAsync(
-            Candidate("0.1.1-rc.3"),
-            "0.11.0",
+            Candidate("0.1.5-rc.2"),
+            "0.12.0",
             "v24.0.0",
             "node.exe",
             "npm.cmd",
@@ -206,8 +227,8 @@ public sealed class DshUpdateServicesTests : IDisposable
             policy);
 
         await Assert.ThrowsAsync<HarnessException>(() => installer.InstallAsync(
-            Candidate("0.1.1-rc.3"),
-            "0.11.0",
+            Candidate("0.1.5-rc.2"),
+            "0.12.0",
             "v24.0.0",
             "node.exe",
             "npm.cmd",
@@ -259,7 +280,7 @@ public sealed class DshUpdateServicesTests : IDisposable
         new string('a', 64));
 
     private static DependencyDiagnosticsResult UpdateDiagnostics() => new(
-        "0.11.0",
+        "0.12.0",
         "4.8.0",
         new DependencyCheck(DependencyStatus.Available),
         new DependencyCheck(DependencyStatus.Available, Version: DshPackageMetadata.BootstrapVersion),

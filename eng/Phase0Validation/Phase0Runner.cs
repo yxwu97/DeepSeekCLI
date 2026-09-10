@@ -43,7 +43,7 @@ internal static class Phase0Runner
         return 0;
     }
 
-    public static async Task<int> RunPrivateDshSmokeAsync()
+    public static async Task<int> RunPrivateDshSmokeAsync(bool verifyWebView = true)
     {
         var root = CreatePrivateSmokeRoot();
         var workspace = Path.Combine(root, "workspace");
@@ -61,6 +61,7 @@ internal static class Phase0Runner
             ["NPM_CONFIG_OFFLINE"] = "false",
             ["NPM_CONFIG_PREFER_OFFLINE"] = "false",
             ["DSH_HOME"] = dshHome,
+            ["DEEPSEEK_API_KEY"] = string.Empty,
         });
 
         try
@@ -77,8 +78,9 @@ internal static class Phase0Runner
             var logs = new RecentLogBuffer();
             logs.LineAdded += (_, line) => Console.Out.WriteLine(line.DisplayText);
             var runner = new CountingNpmInstallRunner(new NpmInstallRunner(logs));
-            await using var processManager = new HarnessProcessManager(logs);
-            using var healthMonitor = new HarnessHealthMonitor();
+            var browserSession = new DshBrowserSession();
+            await using var processManager = new HarnessProcessManager(logs, browserSession);
+            using var healthMonitor = new HarnessHealthMonitor(browserSession);
             var preparation = new DshPreparationService(
                 discovery,
                 store,
@@ -111,6 +113,10 @@ internal static class Phase0Runner
             if (ready.Status != HealthProbeStatus.DshConfirmed)
             {
                 throw new InvalidOperationException($"Private DSH identity failed: {ready.Status} {ready.Detail}");
+            }
+            if (verifyWebView)
+            {
+                await DshWebViewSmoke.VerifyAsync(settings.ServiceUri, browserSession, Path.Combine(root, "code-profile"));
             }
             await processManager.StopAsync(CancellationToken.None);
 

@@ -55,6 +55,28 @@ public sealed class HarnessProcessManagerTests
     }
 
     [Fact]
+    public async Task AuthenticationTokenIsCapturedBeforeRedactionAndClearedOnExit()
+    {
+        var session = new DshBrowserSession();
+        var logs = new RecentLogBuffer();
+        var logged = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        logs.LineAdded += (_, line) => logged.Enqueue(line.Text);
+        await using var manager = new HarnessProcessManager(logs, session);
+        var output = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        manager.OutputReceived += (_, args) => output.TrySetResult(args.Line.Text);
+        var options = CreateOptions("--auth-url") with { FallbackUri = new Uri("http://127.0.0.1:3080/") };
+
+        await manager.StartAsync(options, CancellationToken.None);
+        var line = await output.Task.WaitAsync(ObservationTimeout);
+        Assert.NotNull(session.GetAuthenticationUri(options.FallbackUri));
+        Assert.Contains("token=[REDACTED]", line, StringComparison.Ordinal);
+        await manager.StopAsync(CancellationToken.None);
+
+        Assert.Null(session.GetAuthenticationUri(options.FallbackUri));
+        Assert.DoesNotContain(logged, text => text.Contains(new string('a', 43), StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ReportsImmediateExitCode()
     {
         await using var manager = new HarnessProcessManager();

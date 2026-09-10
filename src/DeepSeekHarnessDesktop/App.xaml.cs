@@ -111,6 +111,7 @@ public partial class App : System.Windows.Application
             .AddSingleton<IRecentLogBuffer, RecentLogBuffer>()
             .AddSingleton<IWorkspacePicker, WorkspacePicker>()
             .AddSingleton<IDshCommandResolver>(_ => new DshCommandResolver(discovery: discoveryService))
+            .AddSingleton<IDshBrowserSession, DshBrowserSession>()
             .AddSingleton<IHarnessProcessManager, HarnessProcessManager>()
             .AddSingleton<IHarnessHealthMonitor, HarnessHealthMonitor>()
             .AddSingleton<INpmInstallRunner, NpmInstallRunner>()

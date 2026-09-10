@@ -141,4 +141,126 @@ public sealed class HarnessHealthMonitorTests
         Assert.Equal(HealthProbeStatus.DshConfirmed, result.Status);
         Assert.Equal(server.BaseUri, result.FinalUri);
     }
+
+    [Theory]
+    [InlineData(404)]
+    [InlineData(401)]
+    public async Task WaitUntilReadyRetriesStartupResponseUntilIdentityIsConfirmed(int statusCode)
+    {
+        var requests = 0;
+        await using var server = new FakeHarnessServer(_ => Interlocked.Increment(ref requests) == 1
+            ? new FakeResponse(StatusCode: statusCode, Body: string.Empty)
+            : new FakeResponse());
+        using var monitor = new HarnessHealthMonitor();
+
+        var result = await monitor.WaitUntilReadyAsync(
+            () => server.BaseUri, TimeSpan.FromSeconds(3), CancellationToken.None);
+
+        Assert.Equal(HealthProbeStatus.DshConfirmed, result.Status);
+        Assert.Equal(2, requests);
+    }
+
+    [Theory]
+    [InlineData(404)]
+    [InlineData(401)]
+    public async Task PersistentStartupResponseRemainsUnknown(int statusCode)
+    {
+        var requests = 0;
+        await using var server = new FakeHarnessServer(_ =>
+        {
+            Interlocked.Increment(ref requests);
+            return new FakeResponse(StatusCode: statusCode);
+        });
+        using var monitor = new HarnessHealthMonitor();
+
+        var result = await monitor.WaitUntilReadyAsync(
+            () => server.BaseUri, TimeSpan.FromSeconds(2), CancellationToken.None);
+
+        Assert.Equal(HealthProbeStatus.ReachableUnknown, result.Status);
+        Assert.True(requests > 1);
+    }
+
+    [Fact]
+    public async Task StartupResponseRetryCanBeCancelled()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var requests = 0;
+        await using var server = new FakeHarnessServer(_ =>
+        {
+            if (Interlocked.Increment(ref requests) == 2) cancellation.Cancel();
+            return new FakeResponse(StatusCode: 404);
+        });
+        using var monitor = new HarnessHealthMonitor();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => monitor.WaitUntilReadyAsync(
+            () => server.BaseUri, TimeSpan.FromSeconds(3), cancellation.Token));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task AuthenticationRequiresCookieExchangeAndHtmlIdentity(bool validIdentity, bool useLocalhost)
+    {
+        var cookieSeen = false;
+        await using var server = new FakeHarnessServer(_ => new FakeResponse())
+        {
+            RequestHandler = (path, headers) =>
+            {
+                if (path.StartsWith("/?token=", StringComparison.Ordinal))
+                    return new FakeResponse(StatusCode: 303, Location: "/", SetCookie: "dsh-auth-test=signed-fixture; Path=/; HttpOnly; SameSite=Strict");
+                cookieSeen = headers.TryGetValue("Cookie", out var cookie) && cookie.Contains("signed-fixture", StringComparison.Ordinal);
+                return cookieSeen
+                    ? validIdentity ? new FakeResponse() : new FakeResponse(Body: "ordinary page")
+                    : new FakeResponse(StatusCode: 401);
+            },
+        };
+        var configured = useLocalhost ? new UriBuilder(server.BaseUri) { Host = "localhost" }.Uri : server.BaseUri;
+        var session = new DshBrowserSession();
+        session.Begin(configured);
+        session.CaptureOutput($"dsh web: {server.BaseUri}?token={new string('a', 43)}");
+        using var monitor = new HarnessHealthMonitor(session);
+
+        var result = await monitor.ProbeAsync(configured, TimeSpan.FromSeconds(3), CancellationToken.None);
+
+        Assert.True(cookieSeen);
+        Assert.Equal(validIdentity ? HealthProbeStatus.DshConfirmed : HealthProbeStatus.ReachableUnknown, result.Status);
+        Assert.Equal(configured, result.RequestedUri);
+        Assert.Equal(server.BaseUri, result.FinalUri);
+        Assert.DoesNotContain("token=", result.ToString(), StringComparison.Ordinal);
+        session.Clear();
+        var external = await monitor.ProbeAsync(server.BaseUri, TimeSpan.FromSeconds(3), CancellationToken.None);
+        Assert.Equal(HealthProbeStatus.ReachableUnknown, external.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AuthenticationNeverFollowsForeignOriginRedirect(bool afterExchange)
+    {
+        var requests = 0;
+        await using var foreign = new FakeHarnessServer(_ =>
+        {
+            Interlocked.Increment(ref requests);
+            return new FakeResponse();
+        });
+        await using var server = new FakeHarnessServer(path => new FakeResponse(
+            StatusCode: 303, Location: afterExchange && path.StartsWith("/?token=", StringComparison.Ordinal)
+                ? "/" : foreign.BaseUri.AbsoluteUri,
+            SetCookie: "dsh-auth-test=signed-fixture; Path=/"));
+        using var monitor = new HarnessHealthMonitor(CreateBrowserSession(server.BaseUri));
+
+        var result = await monitor.ProbeAsync(server.BaseUri, TimeSpan.FromSeconds(3), CancellationToken.None);
+
+        Assert.Equal(afterExchange ? HealthProbeStatus.ExternalRedirect : HealthProbeStatus.ReachableUnknown, result.Status);
+        Assert.Equal(0, requests);
+    }
+
+    private static DshBrowserSession CreateBrowserSession(Uri origin)
+    {
+        var session = new DshBrowserSession();
+        session.Begin(origin);
+        session.CaptureOutput($"dsh web: {origin}?token={new string('a', 43)}");
+        return session;
+    }
 }
