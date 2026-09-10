@@ -206,6 +206,8 @@ if ($zip.Length -gt $maximumArchiveBytes -or $executable.Length -gt $maximumExec
 }
 
 $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
+Write-Host 'Verifying main window startup from the release ZIP...'
+& (Join-Path $PSScriptRoot 'Verify-Startup.ps1') -ArchivePath $zipPath
 $externalValidationRequired = @()
 if ($SkipInteractiveWebView2) {
     $externalValidationRequired += 'Interactive Code/Chat WebView2 smoke in a normal desktop session'
@@ -220,7 +222,7 @@ $externalValidationRequired += @(
     'Windows 10/11 x64 at 100%, 125%, and 150% DPI'
 )
 $report = [ordered]@{
-    schemaVersion = 5
+    schemaVersion = 6
     generatedAt = [DateTimeOffset]::Now.ToString('o')
     version = $Version
     runtime = $Runtime
@@ -231,6 +233,7 @@ $report = [ordered]@{
         webViewInteractive = $webViewResult
         privateDshInstallAndReuse = $privateDshResult
         privateDshCodeWebView = $privateDshWebViewResult
+        publishedExecutableStartup = 'passed'
     }
     artifact = [ordered]@{
         path = $zip.FullName

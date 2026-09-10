@@ -26,9 +26,11 @@ public partial class App : System.Windows.Application
     private int _shutdownStarted;
     private bool _shutdownCompleted;
     private bool _exitRequested;
+    private bool _startupSmoke;
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        _startupSmoke = e.Args.Length == 1 && e.Args[0] == "--startup-smoke";
 
         var redactor = new SensitiveDataRedactor();
         _logService = new LogService(redactor: redactor);
@@ -44,6 +46,11 @@ public partial class App : System.Windows.Application
         _singleInstance = new SingleInstanceService();
         if (!_singleInstance.IsPrimary)
         {
+            if (_startupSmoke)
+            {
+                Shutdown(2);
+                return;
+            }
             var notified = await _singleInstance.NotifyPrimaryAsync(CancellationToken.None);
             _logger.LogInformation(new EventId(1002), "Secondary instance exiting; activation delivered: {Delivered}.", notified);
             Shutdown();
@@ -53,7 +60,9 @@ public partial class App : System.Windows.Application
         _settingsService = new SettingsService(_logService.CreateLogger<SettingsService>());
         try
         {
-            _settings = await _settingsService.LoadAsync(CancellationToken.None);
+            _settings = _startupSmoke
+                ? new Models.AppSettings { AutoStart = false }
+                : await _settingsService.LoadAsync(CancellationToken.None);
         }
         catch (Models.HarnessException exception)
         {
@@ -113,7 +122,8 @@ public partial class App : System.Windows.Application
             .AddSingleton<IDshCommandResolver>(_ => new DshCommandResolver(discovery: discoveryService))
             .AddSingleton<IDshBrowserSession, DshBrowserSession>()
             .AddSingleton<IHarnessProcessManager, HarnessProcessManager>()
-            .AddSingleton<IHarnessHealthMonitor, HarnessHealthMonitor>()
+            .AddSingleton<IHarnessHealthMonitor>(services =>
+                new HarnessHealthMonitor(services.GetRequiredService<IDshBrowserSession>()))
             .AddSingleton<INpmInstallRunner, NpmInstallRunner>()
             .AddSingleton<IDshCandidateSmokeVerifier, DshCandidateSmokeVerifier>()
             .AddSingleton<IDshPreparationService, DshPreparationService>()
@@ -148,6 +158,13 @@ public partial class App : System.Windows.Application
         if (sender is System.Windows.Window window)
         {
             window.ContentRendered -= OnMainWindowContentRendered;
+        }
+        if (_startupSmoke)
+        {
+            // Exercise the production container, resources, window and tray without user configuration or DSH.
+            _logger?.LogInformation(new EventId(1007), "Published application startup smoke: main window rendered.");
+            Dispatcher.BeginInvoke(new Action(RequestApplicationExit), DispatcherPriority.ApplicationIdle);
+            return;
         }
         _startupCts = new CancellationTokenSource();
         _initializationTask = InitializeAfterShellAsync(_startupCts.Token);
@@ -307,7 +324,7 @@ public partial class App : System.Windows.Application
         _initializationTask = null;
         _diagnosticsTask = null;
 
-        if (_settingsService is not null && _settings is not null)
+        if (!_startupSmoke && _settingsService is not null && _settings is not null)
         {
             try
             {
