@@ -9,6 +9,15 @@ public sealed class RuntimeHealthWatcherTests
     private static readonly Uri ServiceUri = new("http://127.0.0.1:3080/");
 
     [Fact]
+    public async Task ExpiredAuthenticationRequiresReconnectionWithoutPortConflict()
+    {
+        var watcher = new RuntimeHealthWatcher(new SequenceHealthMonitor(HealthProbeStatus.AuthenticationRequired),
+            TimeSpan.FromMilliseconds(1));
+        var lost = await watcher.WatchAsync(ServiceUri, 1, CancellationToken.None);
+        Assert.Equal("DSH-E228", lost?.Error?.Code);
+    }
+
+    [Fact]
     public async Task ThreeConsecutiveUnreachableResultsLoseHealth()
     {
         var monitor = new SequenceHealthMonitor(

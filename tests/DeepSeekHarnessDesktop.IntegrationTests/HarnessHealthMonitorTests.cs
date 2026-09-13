@@ -5,6 +5,17 @@ namespace DeepSeekHarnessDesktop.IntegrationTests;
 
 public sealed class HarnessHealthMonitorTests
 {
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    public async Task AuthenticationChallengeIsNotAPortConflictOrConfirmedDsh(int status)
+    {
+        await using var server = new FakeHarnessServer(_ => new FakeResponse(StatusCode: status));
+        using var monitor = new HarnessHealthMonitor();
+        var result = await monitor.ProbeAsync(server.BaseUri, TimeSpan.FromSeconds(2), CancellationToken.None);
+        Assert.Equal(HealthProbeStatus.AuthenticationRequired, result.Status);
+    }
+
     [Fact]
     public void DefaultLoopbackHandlerDoesNotUseSystemProxy()
     {
@@ -176,7 +187,7 @@ public sealed class HarnessHealthMonitorTests
         var result = await monitor.WaitUntilReadyAsync(
             () => server.BaseUri, TimeSpan.FromSeconds(2), CancellationToken.None);
 
-        Assert.Equal(HealthProbeStatus.ReachableUnknown, result.Status);
+        Assert.Equal(statusCode == 401 ? HealthProbeStatus.AuthenticationRequired : HealthProbeStatus.ReachableUnknown, result.Status);
         Assert.True(requests > 1);
     }
 
@@ -197,10 +208,13 @@ public sealed class HarnessHealthMonitorTests
     }
 
     [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, false)]
-    [InlineData(true, true)]
-    public async Task AuthenticationRequiresCookieExchangeAndHtmlIdentity(bool validIdentity, bool useLocalhost)
+    [InlineData(true, false, false)]
+    [InlineData(false, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, false, true)]
+    [InlineData(true, true, true)]
+    public async Task AuthenticationRequiresCookieExchangeAndHtmlIdentity(bool validIdentity, bool useLocalhost, bool externalLink)
     {
         var cookieSeen = false;
         await using var server = new FakeHarnessServer(_ => new FakeResponse())
@@ -217,8 +231,13 @@ public sealed class HarnessHealthMonitorTests
         };
         var configured = useLocalhost ? new UriBuilder(server.BaseUri) { Host = "localhost" }.Uri : server.BaseUri;
         var session = new DshBrowserSession();
-        session.Begin(configured);
-        session.CaptureOutput($"dsh web: {server.BaseUri}?token={new string('a', 43)}");
+        if (externalLink)
+            Assert.True(session.TryBeginExternal(configured, $"{server.BaseUri}?token={new string('a', 43)}"));
+        else
+        {
+            session.Begin(configured);
+            session.CaptureOutput($"dsh web: {server.BaseUri}?token={new string('a', 43)}");
+        }
         using var monitor = new HarnessHealthMonitor(session);
 
         var result = await monitor.ProbeAsync(configured, TimeSpan.FromSeconds(3), CancellationToken.None);
@@ -230,7 +249,7 @@ public sealed class HarnessHealthMonitorTests
         Assert.DoesNotContain("token=", result.ToString(), StringComparison.Ordinal);
         session.Clear();
         var external = await monitor.ProbeAsync(server.BaseUri, TimeSpan.FromSeconds(3), CancellationToken.None);
-        Assert.Equal(HealthProbeStatus.ReachableUnknown, external.Status);
+        Assert.Equal(HealthProbeStatus.AuthenticationRequired, external.Status);
     }
 
     [Theory]

@@ -13,6 +13,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
     private readonly ICodeWebViewService _codeWebView;
     private readonly IChatWebViewService? _chatWebView;
     private readonly IUserConfirmationService? _confirmation;
+    private readonly IExternalDshConnector? _externalConnector;
     private readonly IWorkspacePicker _workspacePicker;
     private readonly IRecentLogBuffer _recentLogBuffer;
     private readonly AppSettings _settings;
@@ -41,12 +42,14 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         DependencyDiagnosticsResult diagnostics,
         InstallationGuideViewModel? installationGuide = null,
         IChatWebViewService? chatWebView = null,
-        IUserConfirmationService? confirmation = null)
+        IUserConfirmationService? confirmation = null,
+        IExternalDshConnector? externalConnector = null)
     {
         _coordinator = coordinator;
         _codeWebView = codeWebView;
         _chatWebView = chatWebView;
         _confirmation = confirmation;
+        _externalConnector = externalConnector;
         _workspacePicker = workspacePicker;
         _recentLogBuffer = recentLogBuffer;
         _settings = settings;
@@ -126,7 +129,8 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         ChatPageState.Failed => "DeepSeek Chat 加载失败",
         ChatPageState.ClearingData => "正在清除 Chat 登录信息",
         _ => "DeepSeek Chat",
-    } : InitializationError is not null ? "初始化失败" : State switch
+    } : InitializationError is not null ? "初始化失败"
+        : Snapshot.Error?.Code == "DSH-E228" ? "已有服务等待认证" : State switch
     {
         HarnessRuntimeState.Initializing => "正在初始化",
         HarnessRuntimeState.Starting => "正在启动 DeepSeek Harness",
@@ -134,7 +138,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         HarnessRuntimeState.RunningExternal => "外部 DeepSeek Harness 正在运行",
         HarnessRuntimeState.Stopping => "正在停止",
         HarnessRuntimeState.Restarting => "正在重启",
-        HarnessRuntimeState.Failed => "启动失败",
+        HarnessRuntimeState.Failed => "连接或启动失败",
         _ => "DeepSeek Harness 已停止",
     };
     public string StatusDetail => IsChatMode
@@ -155,6 +159,10 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
     public bool IsChatWebViewVisible => IsChatMode && ChatSnapshot.State == ChatPageState.Ready;
     public bool IsWebViewVisible => IsCodeWebViewVisible;
     public bool CanChangeWorkspace => IsCodeMode && State is HarnessRuntimeState.Stopped or HarnessRuntimeState.Failed;
+    public bool CanConnectExternal => _externalConnector is not null && IsCodeMode
+        && State is HarnessRuntimeState.Stopped or HarnessRuntimeState.Failed;
+    public string ExternalConnectionAddress => _settings.ServiceUri.GetLeftPart(UriPartial.Authority);
+    public void RefreshServiceAddress() => OnPropertyChanged(nameof(ExternalConnectionAddress));
     public bool CanReloadPage => IsCodeMode ? IsRunning : ChatSnapshot.State is ChatPageState.Ready or ChatPageState.Failed;
     public string DesktopVersion => $"MVP {_desktopVersion}";
     public ObservableCollection<ProcessOutputLine> RecentLogs { get; }
@@ -172,6 +180,10 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         var task = _lastNavigatedUri == uri ? _navigationTask : Task.CompletedTask;
         return task.WaitAsync(cancellationToken);
     }
+
+    public Task ConnectExternalAsync(string authenticationLink) => CanConnectExternal
+        ? _externalConnector!.ConnectExternalAsync(authenticationLink, CancellationToken.None)
+        : Task.CompletedTask;
 
     public IAsyncRelayCommand StartCommand { get; }
     public IAsyncRelayCommand StopCommand { get; }
@@ -239,6 +251,9 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
     private void ApplySnapshot(HarnessStateSnapshot snapshot)
     {
         Snapshot = snapshot;
+        if (InstallationGuide is { HasWebView2: true } guide
+            && (snapshot.State == HarnessRuntimeState.RunningExternal || snapshot.Error?.Code == "DSH-E228"))
+            guide.IsActive = false;
         OnPropertyChanged(nameof(State));
         OnPropertyChanged(nameof(StatusTitle));
         OnPropertyChanged(nameof(StatusDetail));
@@ -247,6 +262,8 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsCodeWebViewVisible));
         OnPropertyChanged(nameof(IsWebViewVisible));
         OnPropertyChanged(nameof(CanChangeWorkspace));
+        OnPropertyChanged(nameof(CanConnectExternal));
+        OnPropertyChanged(nameof(ExternalConnectionAddress));
         StartCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();
         RestartCommand.NotifyCanExecuteChanged();
@@ -312,6 +329,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsChatWebViewVisible));
         OnPropertyChanged(nameof(IsWebViewVisible));
         OnPropertyChanged(nameof(CanChangeWorkspace));
+        OnPropertyChanged(nameof(CanConnectExternal));
         OnPropertyChanged(nameof(CanReloadPage));
         OnPropertyChanged(nameof(StatusTitle));
         OnPropertyChanged(nameof(StatusDetail));

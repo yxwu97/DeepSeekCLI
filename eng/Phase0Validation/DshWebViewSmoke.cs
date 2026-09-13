@@ -12,6 +12,25 @@ internal static class DshWebViewSmoke
 {
     public static async Task VerifyAsync(Uri origin, IDshBrowserSession session, string profileRoot)
     {
+        await VerifySessionAsync(origin, session, profileRoot);
+        var external = new DshBrowserSession();
+        var link = session.GetAuthenticationUri(origin);
+        if (link is null || !external.TryBeginExternal(origin, link.AbsoluteUri))
+            throw new InvalidOperationException("The smoke DSH did not provide a valid external authentication link.");
+        try
+        {
+            using var monitor = new HarnessHealthMonitor(external);
+            var probe = await monitor.ProbeAsync(origin, TimeSpan.FromSeconds(5), CancellationToken.None);
+            if (probe.Status != HealthProbeStatus.DshConfirmed)
+                throw new InvalidOperationException("External authentication did not confirm the smoke DSH identity.");
+            await VerifySessionAsync(origin, external, Path.Combine(profileRoot, "external"));
+            Console.Out.WriteLine("PASS: Explicit external DSH link authenticated through an independent HTTP session and Code profile.");
+        }
+        finally { external.ClearExternal(); }
+    }
+
+    private static async Task VerifySessionAsync(Uri origin, IDshBrowserSession session, string profileRoot)
+    {
         var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: profileRoot);
         var browser = new WebView2();
         var window = new Window { Title = "DSH Code WebView2 validation", Width = 1000, Height = 700, Content = browser };

@@ -8,6 +8,13 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        if (e.Args.Contains("--external-connection-layout", StringComparer.OrdinalIgnoreCase))
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            Shutdown(ExternalConnectionLayout.Run());
+            return;
+        }
+
         if (e.Args.Contains("--self-test", StringComparer.OrdinalIgnoreCase))
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;

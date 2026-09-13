@@ -4,7 +4,7 @@ using DeepSeekHarnessDesktop.Utilities;
 
 namespace DeepSeekHarnessDesktop.Services;
 
-public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
+public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator, IExternalDshConnector
 {
     private readonly HarnessStateMachine _stateMachine;
     private readonly IDshCommandResolver _resolver;
@@ -15,6 +15,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
     private readonly AppSettings _settings;
     private readonly IRecentLogBuffer? _recentLogs;
     private readonly IDshPreparationService? _preparationService;
+    private readonly IDshBrowserSession? _browserSession;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly object _operationSync = new();
     private readonly object _ownedProcessSync = new();
@@ -39,7 +40,8 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         IRuntimeHealthWatcher? runtimeHealthWatcher = null,
         ISettingsService? settingsService = null,
         IRecentLogBuffer? recentLogs = null,
-        IDshPreparationService? preparationService = null)
+        IDshPreparationService? preparationService = null,
+        IDshBrowserSession? browserSession = null)
     {
         _stateMachine = stateMachine;
         _resolver = resolver;
@@ -50,6 +52,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         _settingsService = settingsService;
         _recentLogs = recentLogs;
         _preparationService = preparationService;
+        _browserSession = browserSession;
         _processManager.OutputReceived += OnOutputReceived;
         _processManager.ProcessExited += OnProcessExited;
     }
@@ -74,6 +77,9 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
                     break;
                 case HealthProbeStatus.ReachableUnknown:
                     Commit(HarnessStateEvent.ReachableUnknown, generation, "检测到无法确认身份的本机服务", error: Error205(probe.Detail));
+                    break;
+                case HealthProbeStatus.AuthenticationRequired:
+                    Commit(HarnessStateEvent.ReachableUnknown, generation, "本机服务等待认证", error: ExternalDshErrors.AuthenticationRequired());
                     break;
                 case HealthProbeStatus.ExternalRedirect:
                     Commit(HarnessStateEvent.ExternalRedirect, generation, "服务重定向到不允许的地址", error: new HarnessError("DSH-E204", "服务重定向到不允许的地址", probe.Detail ?? string.Empty, false));
@@ -167,6 +173,43 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         {
             Volatile.Write(ref _startRequested, 0);
         }
+    }
+
+    public async Task ConnectExternalAsync(string authenticationLink, CancellationToken cancellationToken)
+    {
+        if (Current.State is not (HarnessRuntimeState.Stopped or HarnessRuntimeState.Failed)) return;
+        await RunOperationAsync(async (generation, token) =>
+        {
+            if (Current.State is not (HarnessRuntimeState.Stopped or HarnessRuntimeState.Failed)) return;
+            var startEvent = Current.State == HarnessRuntimeState.Failed ? HarnessStateEvent.Retry : HarnessStateEvent.Start;
+            if (!Commit(startEvent, generation, "正在认证并连接已有 DSH")) return;
+            try
+            {
+                if (_browserSession?.TryBeginExternal(_settings.ServiceUri, authenticationLink) != true)
+                    throw new HarnessException(ExternalDshErrors.InvalidLink());
+                var probe = await _healthMonitor.ProbeAsync(_settings.ServiceUri, TimeSpan.FromSeconds(5), token);
+                token.ThrowIfCancellationRequested();
+                if (probe.Status != HealthProbeStatus.DshConfirmed) throw CreateProbeException(probe);
+                CommitPreflight(probe, generation);
+            }
+            catch (OperationCanceledException)
+            {
+                Commit(HarnessStateEvent.Cancel, generation, "已取消连接");
+                Commit(HarnessStateEvent.ProcessExited, generation, "DSH 连接已取消");
+                if (cancellationToken.IsCancellationRequested) throw;
+            }
+            catch (Exception exception)
+            {
+                // Never retain the supplied URL or an exception that might contain credentials.
+                var error = exception is HarnessException harness ? harness.Error : new HarnessError(
+                    "DSH-E208", "无法连接到指定的 DSH 服务", "External DSH connection failed.", true);
+                Commit(HarnessStateEvent.Error, generation, error.UserMessage, error: error);
+            }
+            finally
+            {
+                if (Current.State != HarnessRuntimeState.RunningExternal) _browserSession?.ClearExternal();
+            }
+        }, cancellationToken);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -329,6 +372,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
             {
                 await _settingsService.SaveAsync(_settings, token);
             }
+            if (serviceUri != oldUri) _browserSession?.ClearExternal();
         }
         catch
         {
@@ -339,6 +383,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
 
     private static HarnessException CreateProbeException(HealthProbeResult probe) => probe.Status switch
     {
+        HealthProbeStatus.AuthenticationRequired => new HarnessException(ExternalDshErrors.AuthenticationRequired()),
         HealthProbeStatus.ReachableUnknown => new HarnessException(Error205(probe.Detail)),
         HealthProbeStatus.ExternalRedirect => new HarnessException(new HarnessError("DSH-E204", "服务重定向到不允许的地址", probe.Detail ?? string.Empty, false)),
         HealthProbeStatus.InvalidUri => new HarnessException(new HarnessError("DSH-E202", "服务地址无效", probe.Detail ?? string.Empty, true)),
@@ -432,8 +477,9 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         {
             var error = ready.Status switch
             {
+                HealthProbeStatus.AuthenticationRequired => ExternalDshErrors.AuthenticationRequired(),
                 HealthProbeStatus.ExternalRedirect => new HarnessError("DSH-E204", "服务重定向到不允许的地址", ready.Detail ?? "External redirect.", false),
-                HealthProbeStatus.ReachableUnknown => new HarnessError("DSH-E205", "端口被其他服务占用", ready.Detail ?? "Unknown service.", true),
+                HealthProbeStatus.ReachableUnknown => Error205(ready.Detail),
                 HealthProbeStatus.InvalidUri => new HarnessError("DSH-E202", "服务地址无效", ready.Detail ?? "Invalid URI.", true),
                 _ => new HarnessError("DSH-E203", "DSH 启动超时", ready.Detail ?? "Startup timeout.", true),
             };
@@ -463,6 +509,9 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
                 break;
             case HealthProbeStatus.ReachableUnknown:
                 Commit(HarnessStateEvent.PreflightReachableUnknown, generation, "检测到无法确认身份的本机服务", error: Error205(result.Detail));
+                break;
+            case HealthProbeStatus.AuthenticationRequired:
+                Commit(HarnessStateEvent.PreflightReachableUnknown, generation, "本机服务等待认证", error: ExternalDshErrors.AuthenticationRequired());
                 break;
             case HealthProbeStatus.ExternalRedirect:
                 Commit(HarnessStateEvent.PreflightExternalRedirect, generation, "服务重定向到不允许的地址", error: new HarnessError("DSH-E204", "服务重定向到不允许的地址", result.Detail ?? string.Empty, false));
@@ -688,7 +737,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
     }
 
     private static HarnessError Error205(string? detail) =>
-        new("DSH-E205", "端口被其他服务占用", detail ?? "Reachable service is not DSH.", true);
+        new("DSH-E205", "端口已有服务，但未能确认是 DSH，请检查服务地址", detail ?? "DSH identity is unconfirmed.", true);
 
     private void StartRuntimeWatcher(Uri uri, long generation)
     {
@@ -732,6 +781,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
             {
                 if (Current.Generation == generation && Current.State == HarnessRuntimeState.RunningExternal)
                 {
+                    _browserSession?.ClearExternal();
                     Commit(
                         HarnessStateEvent.HealthLost,
                         generation,
@@ -767,6 +817,7 @@ public sealed class HarnessLifecycleCoordinator : IHarnessLifecycleCoordinator
         {
             UntrackOwnedProcess();
             await _processManager.StopAsync(CancellationToken.None);
+            _browserSession?.ClearExternal();
             if (_runtimeWatchTask is not null)
             {
                 try

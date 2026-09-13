@@ -77,7 +77,7 @@ DeepSeek Harness Desktop 是面向 Windows 10/11 x64 的原生桌面宿主。应
 ### 5.4 服务身份与 WebView2
 
 - 默认服务地址必须是 loopback。端口可访问不等于 DSH 可用；加载或认定外部实例前必须验证 HTTP 状态、HTML 内容和 DSH 身份标记。
-- DSH 浏览器认证令牌仅从当前 Owned 进程标准输出的固定公告接收，绑定其已校验 loopback 源、仅存内存并随进程退出清除；先脱敏再发布输出事件或写入日志。HTTP 探测使用独立临时 Cookie 会话，认证跳转不得跨源；Code WebView2 自行交换 Cookie，不读取或复制浏览器 Cookie，不向 Chat 传递令牌。localhost / IPv6 配置只可规范化到同 scheme/端口的官方 IPv4 公告源，不能将令牌发送到别名地址。
+- DSH 浏览器认证令牌自动来源仅限当前 Owned 进程标准输出的固定公告；外部实例允许用户在专用输入框主动粘贴固定格式的当前 loopback 源认证链接，经独立 HTTP 认证和 HTML 双身份校验后接入。令牌仅存内存，外部输入提交后清空，失败、取消、地址切换、健康丢失及退出时清除；Owned 令牌绑定其已校验 loopback 源并随进程退出清除；先脱敏再发布输出事件或写入日志。HTTP 探测使用独立临时 Cookie 会话，认证跳转不得跨源；Code WebView2 自行交换 Cookie，不读取或复制浏览器 Cookie，不向 Chat 传递令牌。localhost / IPv6 配置只可规范化到同 scheme/端口的官方 IPv4 公告源，不能将令牌发送到别名地址。
 - Code WebView2 的重定向只能在 loopback 地址之间进行，主导航必须与已确认 DSH 地址同源；禁止加载远程地址、带用户信息的 URL 或身份不明的本机服务。
 - Chat WebView2 只允许精确的 `https://chat.deepseek.com:443` origin，使用固定 `Chat` profile 且不与 Code 共享 profile。新增登录、验证码或其他远程 origin 前必须有真实流程证据、逐项常量、相邻恶意域名测试和安全评审，禁止通配符。
 - 非内嵌 HTTP(S) 链接交给受控系统浏览器服务；危险协议直接拒绝。Chat 权限默认拒绝、下载默认取消，不读取或复制 Cookie、Token、密码、DOM、消息、站点存储或网络正文。

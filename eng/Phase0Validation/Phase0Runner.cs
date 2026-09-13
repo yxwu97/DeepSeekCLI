@@ -108,7 +108,7 @@ internal static class Phase0Runner
             var process = await processManager.StartAsync(options, CancellationToken.None);
             var ready = await healthMonitor.WaitUntilReadyAsync(
                 () => settings.ServiceUri,
-                TimeSpan.FromSeconds(30),
+                TimeSpan.FromMinutes(2),
                 CancellationToken.None);
             if (ready.Status != HealthProbeStatus.DshConfirmed)
             {

@@ -104,6 +104,12 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
                     continue;
                 }
 
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                {
+                    return new HealthProbeResult(HealthProbeStatus.AuthenticationRequired, uri, current,
+                        "Loopback service requires authentication; identity is unconfirmed.", response.StatusCode);
+                }
+
                 if (!response.IsSuccessStatusCode || !IsHtml(response.Content.Headers.ContentType))
                 {
                     return new HealthProbeResult(
@@ -165,6 +171,7 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
 
             last = await ProbeAsync(uriProvider(), timeout, cancellationToken);
             if (last.Status != HealthProbeStatus.Unreachable
+                && last.Status != HealthProbeStatus.AuthenticationRequired
                 && !(last.Status == HealthProbeStatus.ReachableUnknown
                     && last.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Unauthorized))
             {
@@ -182,7 +189,7 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
         }
 
         var requested = last?.RequestedUri ?? uriProvider();
-        if (last?.Status == HealthProbeStatus.ReachableUnknown) return last;
+        if (last?.Status is HealthProbeStatus.ReachableUnknown or HealthProbeStatus.AuthenticationRequired) return last;
         return new HealthProbeResult(HealthProbeStatus.Unreachable, requested, Detail: "Startup timeout elapsed.");
     }
 
@@ -201,7 +208,9 @@ public sealed class HarnessHealthMonitor : IHarnessHealthMonitor, IDisposable
                 || !Uri.TryCreate(origin, location, out var target)
                 || target != origin)
             {
-                return new HealthProbeResult(HealthProbeStatus.ReachableUnknown, origin, origin,
+                return new HealthProbeResult(
+                    response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+                        ? HealthProbeStatus.AuthenticationRequired : HealthProbeStatus.ReachableUnknown, origin, origin,
                     "DSH browser authentication did not return the clean same-origin root.", response.StatusCode);
             }
         }

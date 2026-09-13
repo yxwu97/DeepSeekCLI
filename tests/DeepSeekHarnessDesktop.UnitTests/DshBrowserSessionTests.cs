@@ -8,6 +8,38 @@ public sealed class DshBrowserSessionTests
     private static readonly string Token = new('a', 43);
 
     [Fact]
+    public void ExplicitExternalLinkIsBoundToConfiguredOriginAndCleared()
+    {
+        var session = new DshBrowserSession();
+        Assert.True(session.TryBeginExternal(Origin, $"{Origin}?token={Token}"));
+        Assert.NotNull(session.GetAuthenticationUri(Origin));
+        Assert.Null(session.GetAuthenticationUri(new Uri("http://localhost:3080/")));
+        session.ClearExternal();
+        Assert.Null(session.GetAuthenticationUri(Origin));
+        session.Begin(Origin);
+        session.CaptureOutput($"dsh web: {Origin}?token={Token}");
+        session.ClearExternal();
+        Assert.NotNull(session.GetAuthenticationUri(Origin));
+    }
+
+    [Theory]
+    [InlineData("http://127.0.0.1:3081/?token={0}")]
+    [InlineData("https://127.0.0.1:3080/?token={0}")]
+    [InlineData("http://127.0.0.1.example.com:3080/?token={0}")]
+    [InlineData("http://user@127.0.0.1:3080/?token={0}")]
+    [InlineData("http://127.0.0.1:3080/other?token={0}")]
+    [InlineData("http://127.0.0.1:3080/?token={0}&x=1")]
+    [InlineData("http://127.0.0.1:3080/?token={0}#fragment")]
+    [InlineData("http://127.0.0.1:3080/?%74oken={0}")]
+    [InlineData("http://127.0.0.1:3080/?token=short")]
+    public void RejectsUntrustedExternalLinkWithoutRetainingIt(string template)
+    {
+        var session = new DshBrowserSession();
+        Assert.False(session.TryBeginExternal(Origin, string.Format(template, Token)));
+        Assert.Null(session.GetAuthenticationUri(Origin));
+    }
+
+    [Fact]
     public void CapturesOnlyForActiveOriginAndClearsAcrossLaunches()
     {
         var session = new DshBrowserSession();

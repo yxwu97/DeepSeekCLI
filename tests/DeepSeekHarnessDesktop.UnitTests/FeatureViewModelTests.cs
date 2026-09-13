@@ -9,6 +9,54 @@ namespace DeepSeekHarnessDesktop.UnitTests;
 public sealed class FeatureViewModelTests
 {
     [Fact]
+    public async Task SettingsAuthenticationChallengeProvidesConnectionGuidance()
+    {
+        using var settings = new SettingsViewModel(new FakeCoordinator(Stopped()),
+            new FakeHealthMonitor(HealthProbeStatus.AuthenticationRequired), new FakeConfirmation(false), new AppSettings());
+        await settings.TestConnectionCommand.ExecuteAsync(null);
+        Assert.Contains("需要认证", settings.StatusMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("地址无效", settings.StatusMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExternalConnectionBypassesInstallationAndKeepsExternalCommandsReadOnly()
+    {
+        var coordinator = new FakeCoordinator(Stopped() with
+        {
+            State = HarnessRuntimeState.Failed, Error = ExternalDshErrors.AuthenticationRequired(),
+        });
+        var connector = new FakeExternalConnector();
+        using var guide = CreateInstallationGuide(coordinator, new FakeConfirmation(false));
+        guide.IsActive = true;
+        using var main = new MainWindowViewModel(coordinator, new FakeNavigation(), new FakeWorkspacePicker(),
+            new RecentLogBuffer(), new AppSettings(), LaunchableDiagnostics(), guide, externalConnector: connector);
+        coordinator.Set(coordinator.Current);
+        Assert.False(guide.IsActive);
+        Assert.True(main.CanConnectExternal);
+        Assert.Equal("已有服务等待认证", main.StatusTitle);
+        await main.ConnectExternalAsync("test-link");
+        Assert.Equal(1, connector.ConnectCount);
+        Assert.Equal(0, coordinator.StartCount);
+        coordinator.Set(Stopped() with { State = HarnessRuntimeState.RunningExternal });
+        Assert.False(main.CanConnectExternal);
+        Assert.False(main.StopCommand.CanExecute(null));
+        Assert.False(main.RestartCommand.CanExecute(null));
+        Assert.True(main.ReloadPageCommand.CanExecute(null));
+        await main.ConnectExternalAsync("test-link");
+        Assert.Equal(1, connector.ConnectCount);
+    }
+
+    private sealed class FakeExternalConnector : IExternalDshConnector
+    {
+        public int ConnectCount { get; private set; }
+        public Task ConnectExternalAsync(string authenticationLink, CancellationToken cancellationToken)
+        {
+            ConnectCount++;
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
     public void InstallationGuideConstructionHasNoProcessOrNetworkSideEffects()
     {
         var coordinator = new FakeCoordinator(Stopped());

@@ -82,6 +82,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
                 HealthProbeStatus.DshConfirmed => $"连接成功，已确认 DeepSeek Harness：{result.FinalUri ?? result.RequestedUri}",
                 HealthProbeStatus.Unreachable => "无法连接到该地址，请确认服务已启动。",
                 HealthProbeStatus.ReachableUnknown => "地址可访问，但无法确认是 DeepSeek Harness。",
+                HealthProbeStatus.AuthenticationRequired => "本机服务需要认证。应用地址后返回主窗口，使用 DSH 终端中的认证链接连接。",
                 HealthProbeStatus.ExternalRedirect => "服务重定向到不允许的地址。",
                 _ => "服务地址无效。",
             };

@@ -35,6 +35,8 @@ public sealed class RuntimeHealthWatcher(
                 case HealthProbeStatus.ReachableUnknown:
                     return new RuntimeHealthLost(generation, result, new HarnessError(
                         "DSH-E205", "原 DSH 已不可用，地址上检测到其他服务", result.Detail ?? string.Empty, true));
+                case HealthProbeStatus.AuthenticationRequired:
+                    return new RuntimeHealthLost(generation, result, ExternalDshErrors.AuthenticationRequired());
                 case HealthProbeStatus.ExternalRedirect:
                     return new RuntimeHealthLost(generation, result, new HarnessError(
                         "DSH-E204", "服务重定向到不允许的地址", result.Detail ?? string.Empty, false));

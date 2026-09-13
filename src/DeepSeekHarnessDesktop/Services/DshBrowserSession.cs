@@ -15,6 +15,7 @@ public sealed class DshBrowserSession : IDshBrowserSession
     private readonly object _sync = new();
     private Uri? _origin;
     private Uri? _authenticationUri;
+    private bool _external;
 
     public void Begin(Uri origin)
     {
@@ -22,6 +23,7 @@ public sealed class DshBrowserSession : IDshBrowserSession
         {
             _origin = ServiceUriValidator.NormalizeOrThrow(origin);
             _authenticationUri = null;
+            _external = false;
         }
     }
 
@@ -57,12 +59,39 @@ public sealed class DshBrowserSession : IDshBrowserSession
         }
     }
 
+    public bool TryBeginExternal(Uri origin, string authenticationLink)
+    {
+        // Explicit user input uses the same fixed URL grammar as the official announcement.
+        if (authenticationLink.Length > 2048 || authenticationLink.IndexOf('%') >= 0
+            || !Uri.TryCreate(authenticationLink.Trim(), UriKind.Absolute, out var candidate)
+            || !ServiceUriValidator.TryNormalize(origin, out origin, out _)
+            || !ServiceUriValidator.IsAllowedLoopbackTarget(candidate)
+            || candidate.AbsolutePath != "/" || candidate.Fragment.Length != 0
+            || !TokenQuery.IsMatch(candidate.Query) || !MatchesLaunchOrigin(candidate, origin)) return false;
+        lock (_sync)
+        {
+            _origin = origin;
+            _authenticationUri = candidate;
+            _external = true;
+        }
+        return true;
+    }
+
+    public void ClearExternal()
+    {
+        lock (_sync)
+        {
+            if (_external) Clear();
+        }
+    }
+
     public void Clear()
     {
         lock (_sync)
         {
             _origin = null;
             _authenticationUri = null;
+            _external = false;
         }
     }
 

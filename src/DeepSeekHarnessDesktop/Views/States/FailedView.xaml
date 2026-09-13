@@ -2,9 +2,19 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Grid>
-    <StackPanel Width="520" HorizontalAlignment="Center" VerticalAlignment="Center">
+    <StackPanel MaxWidth="520" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center">
       <TextBlock HorizontalAlignment="Center" FontSize="24" FontWeight="SemiBold" Foreground="#B42318" Text="{Binding StatusTitle}" />
       <TextBlock Margin="0,12,0,24" HorizontalAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" Text="{Binding StatusDetail}" />
+      <StackPanel Margin="0,0,0,20" Visibility="{Binding CanConnectExternal, Converter={StaticResource BooleanToVisibilityConverter}}">
+        <TextBlock Text="已有 DSH？粘贴其终端中包含 token 的完整认证链接" TextWrapping="Wrap" />
+        <TextBlock Margin="0,4,0,8" Foreground="{StaticResource MutedTextBrush}" Text="{Binding ExternalConnectionAddress, StringFormat=当前服务：{0}}" />
+        <PasswordBox x:Name="AuthenticationLink" MaxLength="2048" Padding="6" MinHeight="32"
+                     AutomationProperties.Name="外部 DSH 认证链接" ToolTip="粘贴 DSH 终端中的完整认证链接；仅用于本次连接"
+                     Unloaded="OnAuthenticationLinkUnloaded" />
+        <Button Margin="0,10,0,0" HorizontalAlignment="Center" Content="认证并连接已有 DSH"
+                IsEnabled="{Binding CanConnectExternal}" Click="OnConnectExternalClick" />
+        <TextBlock Margin="0,8,0,0" Text="链接仅在内存中使用；外部实例由原终端管理。" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" />
+      </StackPanel>
       <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
         <Button Command="{Binding OpenInstallationGuideCommand}" Content="安装引导" />
         <Button Style="{StaticResource PrimaryButtonStyle}" Command="{Binding StartCommand}" AutomationProperties.Name="重试启动 DSH">

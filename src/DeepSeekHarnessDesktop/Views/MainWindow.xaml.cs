@@ -61,6 +61,7 @@ public partial class MainWindow : System.Windows.Window
         {
             Owner = this,
         }.ShowDialog();
+        _viewModel.RefreshServiceAddress();
     }
 
     private void ApplyWindowSettings()

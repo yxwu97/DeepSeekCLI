@@ -143,6 +143,9 @@
                     <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.Failed}">
                       <Setter Property="Content"><Setter.Value><states:FailedView /></Setter.Value></Setter>
                     </DataTrigger>
+                    <DataTrigger Binding="{Binding Snapshot.Error.Code}" Value="DSH-E228">
+                      <Setter Property="Content"><Setter.Value><states:FailedView /></Setter.Value></Setter>
+                    </DataTrigger>
                     <DataTrigger Binding="{Binding State}" Value="{x:Static models:HarnessRuntimeState.RunningOwned}">
                       <Setter Property="Content"><Setter.Value><states:RunningPlaceholderView /></Setter.Value></Setter>
                     </DataTrigger>

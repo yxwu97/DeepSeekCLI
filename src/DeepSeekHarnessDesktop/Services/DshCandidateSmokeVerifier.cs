@@ -10,7 +10,8 @@ namespace DeepSeekHarnessDesktop.Services;
 
 public sealed class DshCandidateSmokeVerifier : IDshCandidateSmokeVerifier
 {
-    private static readonly TimeSpan SmokeTimeout = TimeSpan.FromSeconds(30);
+    // Cold module loading on Windows can exceed 30 seconds even for a healthy DSH.
+    private static readonly TimeSpan SmokeTimeout = TimeSpan.FromMinutes(2);
     private readonly IHarnessProcessManager _processManager;
     private readonly IHarnessHealthMonitor _healthMonitor;
     private readonly IRecentLogBuffer? _recentLogs;

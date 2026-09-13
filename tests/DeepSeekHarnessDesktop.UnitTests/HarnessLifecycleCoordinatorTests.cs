@@ -7,6 +7,55 @@ namespace DeepSeekHarnessDesktop.UnitTests;
 public sealed class HarnessLifecycleCoordinatorTests
 {
     [Fact]
+    public async Task ExternalAuthenticationConnectsWithoutStartingOrStoppingProcesses()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        fixture.Health.EnqueueProbe(HealthProbeStatus.AuthenticationRequired);
+        await fixture.Coordinator.StartAsync(CancellationToken.None);
+        Assert.Equal("DSH-E228", fixture.Coordinator.Current.Error?.Code);
+        fixture.Health.EnqueueProbe(HealthProbeStatus.DshConfirmed);
+        await fixture.Coordinator.ConnectExternalAsync(ExternalLink, CancellationToken.None);
+        Assert.Equal(HarnessRuntimeState.RunningExternal, fixture.Coordinator.Current.State);
+        await fixture.Coordinator.StopAsync(CancellationToken.None);
+        await fixture.Coordinator.RestartAsync(CancellationToken.None);
+        Assert.Equal(0, fixture.Process.StartCount);
+        Assert.Equal(0, fixture.Process.StopCount);
+    }
+
+    [Theory]
+    [InlineData(HealthProbeStatus.AuthenticationRequired, "DSH-E228")]
+    [InlineData(HealthProbeStatus.ReachableUnknown, "DSH-E205")]
+    [InlineData(HealthProbeStatus.Unreachable, "DSH-E208")]
+    [InlineData(HealthProbeStatus.ExternalRedirect, "DSH-E204")]
+    public async Task FailedExternalAuthenticationClearsSession(HealthProbeStatus status, string code)
+    {
+        await using var fixture = await CreateFixtureAsync();
+        fixture.Health.EnqueueProbe(status);
+        await fixture.Coordinator.ConnectExternalAsync(ExternalLink, CancellationToken.None);
+        Assert.Equal(code, fixture.Coordinator.Current.Error?.Code);
+        Assert.Null(fixture.Session.GetAuthenticationUri(new Uri("http://127.0.0.1:3080/")));
+        Assert.Equal(0, fixture.Process.StartCount);
+        Assert.Equal(0, fixture.Process.StopCount);
+    }
+
+    [Fact]
+    public async Task ExternalConnectionCancellationClearsSessionAndDoesNotLaunch()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        using var cancellation = new CancellationTokenSource();
+        fixture.Health.BlockProbeUntilCancelled = true;
+        var connect = fixture.Coordinator.ConnectExternalAsync(ExternalLink, cancellation.Token);
+        await fixture.Health.ProbeStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => connect);
+        Assert.Equal(HarnessRuntimeState.Stopped, fixture.Coordinator.Current.State);
+        Assert.Null(fixture.Session.GetAuthenticationUri(new Uri("http://127.0.0.1:3080/")));
+        Assert.Equal(0, fixture.Process.StartCount);
+    }
+
+    private static string ExternalLink => "http://127.0.0.1:3080/?token=" + new string('a', 43);
+
+    [Fact]
     public async Task StartCreatesOwnedProcessAfterUnreachablePreflight()
     {
         var fixture = await CreateFixtureAsync();
@@ -272,6 +321,8 @@ public sealed class HarnessLifecycleCoordinatorTests
     [Fact]
     public async Task ExternalHealthLossMovesToStoppedWithoutStartingProcess()
     {
+        var session = new DshBrowserSession();
+        Assert.True(session.TryBeginExternal(new Uri("http://127.0.0.1:3080/"), ExternalLink));
         var process = new FakeProcessManager();
         var health = new FakeHealthMonitor();
         health.EnqueueProbe(HealthProbeStatus.DshConfirmed);
@@ -283,7 +334,7 @@ public sealed class HarnessLifecycleCoordinatorTests
             process,
             health,
             settings,
-            watcher);
+            watcher, browserSession: session);
         var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         coordinator.StateChanged += (_, snapshot) =>
         {
@@ -300,6 +351,7 @@ public sealed class HarnessLifecycleCoordinatorTests
 
         Assert.Equal(HarnessRuntimeState.Stopped, coordinator.Current.State);
         Assert.Equal(0, process.StartCount);
+        Assert.Null(session.GetAuthenticationUri(settings.ServiceUri));
         await coordinator.DisposeAsync();
     }
 
@@ -445,6 +497,7 @@ public sealed class HarnessLifecycleCoordinatorTests
     private static async Task<Fixture> CreateFixtureAsync()
     {
         var logs = new RecentLogBuffer();
+        var session = new DshBrowserSession();
         var process = new FakeProcessManager();
         var health = new FakeHealthMonitor();
         var settings = new AppSettings { WorkspacePath = Path.GetTempPath(), AutoStart = false };
@@ -454,9 +507,9 @@ public sealed class HarnessLifecycleCoordinatorTests
             process,
             health,
             settings,
-            recentLogs: logs);
+            recentLogs: logs, browserSession: session);
         await coordinator.InitializeAsync(CancellationToken.None);
-        return new Fixture(coordinator, process, health);
+        return new Fixture(coordinator, process, health, session);
     }
 
     private static async Task<Fixture> CreateRunningFixtureAsync()
@@ -477,7 +530,8 @@ public sealed class HarnessLifecycleCoordinatorTests
     private sealed record Fixture(
         HarnessLifecycleCoordinator Coordinator,
         FakeProcessManager Process,
-        FakeHealthMonitor Health) : IAsyncDisposable
+        FakeHealthMonitor Health,
+        DshBrowserSession Session) : IAsyncDisposable
     {
         public ValueTask DisposeAsync() => Coordinator.DisposeAsync();
     }

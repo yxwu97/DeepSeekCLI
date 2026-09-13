@@ -134,6 +134,8 @@ public partial class App : System.Windows.Application
             .AddSingleton<ChatWebViewService>()
             .AddSingleton<IChatWebViewService>(services => services.GetRequiredService<ChatWebViewService>())
             .AddSingleton<IHarnessLifecycleCoordinator, HarnessLifecycleCoordinator>()
+            .AddSingleton<IExternalDshConnector>(services =>
+                (HarnessLifecycleCoordinator)services.GetRequiredService<IHarnessLifecycleCoordinator>())
             .AddSingleton<InstallationGuideViewModel>()
             .AddSingleton<SettingsViewModel>()
             .AddSingleton<AboutViewModel>()

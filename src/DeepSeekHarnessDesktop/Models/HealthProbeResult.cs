@@ -9,6 +9,7 @@ public enum HealthProbeStatus
     ReachableUnknown,
     ExternalRedirect,
     InvalidUri,
+    AuthenticationRequired,
 }
 
 public sealed record HealthProbeResult(

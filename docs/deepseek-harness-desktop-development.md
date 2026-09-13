@@ -560,3 +560,7 @@ npx.cmd -y @deepseek-ai/dsh@0.1.0-rc.6 web --port <1-65535>
 - 完整锁图中的 `undici`、`@earendil-works/pi-ai` 和 `pi-telemetry` 要求 Node.js 至少 `22.19.0`；受信范围更新为 `>=22.19.0 <25`，推荐 Node.js 24 LTS。
 - Auto 继续使用固定 `lib/bin.js web --no-open` 和可选纯数字端口。npm latest 仍只读，生产签名目录仍未配置；本次通过 Desktop 内置资源更新提供新版本。
 - 新版先监听端口再注册页面，且根页面需要进程令牌认证。`DshBrowserSession` 只在当前 Owned 进程存活期间接收同源标准输出公告；HTTP 探测使用独立 CookieContainer 并禁止认证跨源跳转，Code WebView2 独立交换 Cookie。启动 404/401 有限重试，最终仍要求原有标题与 boot 标记；详细安全约束见详细设计第 37 节。
+
+### 2026-09-13 外部 DSH 接入补充（0.13.0）
+
+已有服务身份确认后继续自动复用；401/403 独立显示 `DSH-E228`。用户可在失败页粘贴当前服务地址对应的完整 DSH 认证链接，认证及 HTML 双身份检查通过后直接进入外部运行状态，不触发安装或进程创建。认证链接仅存内存，不共享浏览器 Cookie；具体边界及错误码见详细设计 37.2 节。
