@@ -222,7 +222,7 @@ public sealed class FeatureViewModelTests
     public async Task AboutUpdateCheckOnlyUpdatesPresentationResult()
     {
         var diagnostics = LaunchableDiagnostics();
-        var expected = new DshUpdateCheckResult("0.1.5-rc.2", DateTimeOffset.Now);
+        var expected = new DshUpdateCheckResult("0.2.1-rc.3", DateTimeOffset.Now);
         var viewModel = new AboutViewModel(
             new FakeDiagnosticsService(diagnostics),
             new FakeReleaseService(expected),
@@ -290,7 +290,7 @@ public sealed class FeatureViewModelTests
     {
         var diagnostics = InstalledDshDiagnostics();
         var entry = new DshCatalogEntry(
-            "0.1.5-rc.2",
+            "0.2.1-rc.3",
             DateTimeOffset.Now,
             DshPackageMetadata.RuntimeProtocol,
             DshPackageMetadata.MinimumDesktopVersion,
@@ -311,7 +311,7 @@ public sealed class FeatureViewModelTests
         var updateCoordinator = new FakeRuntimeUpdateCoordinator();
         var viewModel = new AboutViewModel(
             new FakeDiagnosticsService(diagnostics),
-            new FakeReleaseService(new DshUpdateCheckResult("0.1.5-rc.3", DateTimeOffset.Now)),
+            new FakeReleaseService(new DshUpdateCheckResult("0.2.1-rc.4", DateTimeOffset.Now)),
             new FakeLinkLauncher(),
             new FakeVersionHistoryProvider(),
             diagnostics,
@@ -319,7 +319,7 @@ public sealed class FeatureViewModelTests
             confirmation: new FakeConfirmation(true),
             updateCheckService: new FakeUpdateCheckService(new DshCombinedUpdateCheckResult(
                 DshPackageMetadata.BootstrapVersion,
-                "0.1.5-rc.3",
+                "0.2.1-rc.4",
                 candidate,
                 true,
                 DateTimeOffset.Now)),
@@ -327,7 +327,7 @@ public sealed class FeatureViewModelTests
 
         await viewModel.CheckUpdateCommand.ExecuteAsync(null);
         Assert.True(viewModel.DownloadAndUpdateCommand.CanExecute(null));
-        Assert.Equal("0.1.5-rc.2", viewModel.CatalogUpdateVersion);
+        Assert.Equal("0.2.1-rc.3", viewModel.CatalogUpdateVersion);
         await viewModel.DownloadAndUpdateCommand.ExecuteAsync(null);
 
         Assert.Equal(1, updateCoordinator.ApplyCount);
@@ -340,7 +340,7 @@ public sealed class FeatureViewModelTests
         var diagnostics = InstalledDshDiagnostics();
         var viewModel = new AboutViewModel(
             new FakeDiagnosticsService(diagnostics),
-            new FakeReleaseService(new DshUpdateCheckResult("0.1.5-rc.3", DateTimeOffset.Now)),
+            new FakeReleaseService(new DshUpdateCheckResult("0.2.1-rc.4", DateTimeOffset.Now)),
             new FakeLinkLauncher(),
             new FakeVersionHistoryProvider(),
             diagnostics,
@@ -348,7 +348,7 @@ public sealed class FeatureViewModelTests
             confirmation: new FakeConfirmation(true),
             updateCheckService: new FakeUpdateCheckService(new DshCombinedUpdateCheckResult(
                 DshPackageMetadata.BootstrapVersion,
-                "0.1.5-rc.3",
+                "0.2.1-rc.4",
                 null,
                 true,
                 DateTimeOffset.Now)));

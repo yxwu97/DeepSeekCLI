@@ -1,4 +1,5 @@
 using DeepSeekHarnessDesktop.Models;
+using System.Text.RegularExpressions;
 
 namespace DeepSeekHarnessDesktop.Utilities;
 
@@ -12,9 +13,17 @@ public static class NpmFailureClassifier
             return null;
         }
 
-        if (ContainsAny(text, "ENOTFOUND", "EAI_AGAIN", "getaddrinfo"))
+        // npm cleanup warnings can contain EPERM after a network failure.
+        // Prefer the primary error code rather than the cleanup side effect.
+        var codes = Regex.Matches(text, @"(?im)^npm\s+(?:error|ERR!)\s+code\s+([A-Z][A-Z0-9_]*)\b")
+            .Cast<Match>().Select(match => match.Groups[1].Value).ToArray();
+        if (codes.Length > 0) text = string.Join("\n", codes);
+
+        if (ContainsAny(text, "ENOTFOUND", "EAI_AGAIN", "getaddrinfo", "EIDLETIMEOUT",
+            "ETIMEDOUT", "ESOCKETTIMEDOUT", "ECONNRESET", "ECONNREFUSED", "EPIPE"))
         {
-            return Error("DSH-E211", "无法连接 npm registry，请检查 DNS 和网络", "npm DNS lookup failed.");
+            return Error("DSH-E211", "npm 下载连接中断或超时，请检查网络后重试，已下载缓存会保留",
+                "npm registry connection failed or timed out.");
         }
         if (ContainsAny(text, "CERT_", "certificate", "SELF_SIGNED_CERT", "UNABLE_TO_VERIFY_LEAF_SIGNATURE"))
         {

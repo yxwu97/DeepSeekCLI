@@ -24,7 +24,7 @@ public sealed class UserConfirmationService : IUserConfirmationService
         Application.Current?.MainWindow,
         $"应用将从 npm 官方 registry 下载受信的 DSH {_trustedVersions.Current.Version} 完整依赖图。\n\n"
         + "安装位置：%LOCALAPPDATA%\\DeepSeekHarnessDesktop\\dsh\n"
-        + "预计磁盘占用：约 300 MiB；最长等待：10 分钟；可取消。\n"
+        + "预计磁盘占用：约 600 MiB；最长等待：10 分钟；可取消。\n"
         + "不会修改全局 npm，也不会执行依赖安装脚本。\n\n"
         + "安装成功后会直接复用，不会在每次启动时重复下载。是否继续？",
         "准备并启动 DSH",

@@ -51,6 +51,26 @@ public sealed class PrivateDshInstallationStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task BundledRuntimeResourcesMatchBootstrapEvidence()
+    {
+        var store = new PrivateDshInstallationStore(
+            () => Path.Combine(_root, "bundled-store"),
+            () => Path.Combine(AppContext.BaseDirectory, "dsh-runtime"),
+            new DshTrustedVersionPolicy(() => Path.Combine(_root, "trusted")));
+
+        var transaction = await store.CreateTransactionAsync(CancellationToken.None);
+        try
+        {
+            Assert.Equal(DshPackageMetadata.BootstrapVersion, transaction.Version);
+            Assert.Equal(DshPackageMetadata.BootstrapEvidenceSha256, transaction.LockSha256);
+        }
+        finally
+        {
+            await store.CleanupAsync(transaction);
+        }
+    }
+
+    [Fact]
     public async Task VersionBecomesDiscoverableOnlyAfterAtomicActivation()
     {
         var store = CreateStore();

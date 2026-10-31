@@ -50,6 +50,8 @@ internal static class Phase0Runner
         var privateRoot = Path.Combine(root, "private");
         var npmCache = Path.Combine(root, "npm-cache");
         var dshHome = Path.Combine(root, "dsh-home");
+        var validationCache = Path.Combine(Environment.CurrentDirectory, "output", "validation", "dsh-npm-cache");
+        var privateCache = Path.Combine(privateRoot, "npm-cache", "_cacache");
         Directory.CreateDirectory(workspace);
         var environment = SetTemporaryEnvironment(new Dictionary<string, string>
         {
@@ -66,6 +68,11 @@ internal static class Phase0Runner
 
         try
         {
+            if (Directory.Exists(validationCache))
+            {
+                CopyValidationCache(validationCache, privateCache);
+                Console.Out.WriteLine("INFO: Reusing validation-only npm cache; no user npm cache is read. npm ci and integrity checks still run.");
+            }
             var pathProvider = new EnvironmentPathProvider();
             var nodePath = pathProvider.FindOnPath("node.exe")
                 ?? throw new InvalidOperationException("node.exe was not found on PATH.");
@@ -134,7 +141,29 @@ internal static class Phase0Runner
         finally
         {
             RestoreEnvironment(environment);
+            CopyValidationCache(privateCache, validationCache);
             await DeleteValidationRootAsync(root);
+        }
+    }
+
+    private static void CopyValidationCache(string source, string destination)
+    {
+        if (!Directory.Exists(source)) return;
+        if ((File.GetAttributes(source) & FileAttributes.ReparsePoint) != 0)
+            throw new IOException("Validation cache cannot contain reparse points.");
+        Directory.CreateDirectory(destination);
+        if ((File.GetAttributes(destination) & FileAttributes.ReparsePoint) != 0)
+            throw new IOException("Validation cache destination cannot be a reparse point.");
+        foreach (var file in Directory.EnumerateFiles(source))
+        {
+            if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Validation cache files cannot be reparse points.");
+            File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), true);
+        }
+        foreach (var directory in Directory.EnumerateDirectories(source))
+        {
+            if (Path.GetFileName(directory) == "tmp") continue;
+            CopyValidationCache(directory, Path.Combine(destination, Path.GetFileName(directory)));
         }
     }
 

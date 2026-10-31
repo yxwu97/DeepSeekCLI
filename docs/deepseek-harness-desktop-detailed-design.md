@@ -1516,3 +1516,11 @@ catalog schema v1 只允许版本、兼容性和 package/lock 资产数据，不
 - `IExternalDshConnector` 与生命周期协调器共享同一 DI 实例及操作门。认证不调用安装、命令解析或进程启动；仅在停止/失败状态接入，取消保留 generation 校验并清理会话。仍须先执行同源 303、独立临时 Cookie 交换及原有 HTML 双身份校验，通过后合法迁移到 `RunningExternal`。
 - Code WebView2 沿用既有认证交换与同源导航限制，不复制 HTTP 或其他浏览器 Cookie。Chat profile、origin、下载及权限策略不变。外部认证 URL 仅保留内存，输入框提交或卸载后清空，失败、取消、成功切换地址、健康丢失和宿主退出时清除。
 - 回归覆盖未认证响应不冒充 DSH、错误 HTML、认证前后跨源零请求、恶意 URL、失败清理和取消，以及接入后的命令可用性。当前流程要求用户提供一次有效认证链接，不把“端口有服务”当成已授权会话。
+
+### 37.3 Bootstrap 更新为 DSH 0.2.1-rc.2（2026-10-20，0.13.6）
+
+以官方 npm 精确版本的 `name`、`version`、`bin` 和 `dist.integrity` 为事实来源，遍历 DSH 依赖及 peer 闭包并提升为精确根依赖，使用标准 npm 重新生成完整 lockfile；不使用 force 或 legacy-peer-deps。Bootstrap 最低 Desktop 版本同步为 0.13.6，安装证据绑定最终 lockfile 字节的 SHA-256。
+
+新版本继续使用 `lib/bin.js`、web profile、43 字符 base64url 进程认证令牌和根路径 Cookie 交换。沿用现有进程所有权、HTML 双身份和 WebView2 同源策略。私有安装的真实 smoke、二次准备免 npm、Owned/External Code WebView2 认证与刷新以及最终 ZIP 启动均纳入本次发布验证；执行结果独立记录于 `docs/validation/2026-10-20-dsh-0.2.1-rc.2.md`。
+安装反馈与网络等待修复：npm 使用固定的 30 秒请求超时、2 次重试（间隔 1 至 5 秒）及最多 8 个连接。总期限仍为 10 分钟，无文件进展期限仍为 3 分钟，不降低锁图、integrity、脚本隔离和激活前 smoke 要求。安装文件统计在后台运行并逐文件检查取消；每 10 秒发布已写入 MiB、文件数及耗时，连续 30 秒无新增文件时明确报告等待下载响应。进度不伪造百分比，弃用警告不解释为失败。回归覆盖静默子进程期间可见反馈与取消后整棵进程树回收。
+npm 失败分类优先使用 `npm error code` / `npm ERR! code` 主错误码，避免下载超时后的 cleanup EPERM 掩盖根因；EIDLETIMEOUT、ETIMEDOUT 和连接中断归入 DSH-E211。工程 smoke 可复用 output/validation/dsh-npm-cache 中的验证专用内容缓存，仍创建全新私有目录执行 npm ci 并验证 integrity、启动与激活；不使用用户真实 npm 缓存。全空缓存的干净系统下载仍作为外部验收项，不把缓存复用验证冒称冷下载验证。

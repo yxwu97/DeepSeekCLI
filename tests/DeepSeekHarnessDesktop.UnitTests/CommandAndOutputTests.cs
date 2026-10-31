@@ -55,6 +55,11 @@ public sealed class CommandAndOutputTests : IDisposable
         Assert.Contains("--ignore-scripts", arguments);
         Assert.Contains("--registry=https://registry.npmjs.org", arguments);
         Assert.Contains("--offline=false", arguments);
+        Assert.Contains("--fetch-timeout=30000", arguments);
+        Assert.Contains("--fetch-retries=2", arguments);
+        Assert.Contains("--fetch-retry-mintimeout=1000", arguments);
+        Assert.Contains("--fetch-retry-maxtimeout=5000", arguments);
+        Assert.Contains("--maxsockets=8", arguments);
         Assert.Contains("--replace-registry-host=always", arguments);
         Assert.Contains(arguments, value => value.StartsWith("--userconfig=", StringComparison.Ordinal));
         Assert.Contains(arguments, value => value.StartsWith("--globalconfig=", StringComparison.Ordinal));
@@ -340,6 +345,9 @@ public sealed class CommandAndOutputTests : IDisposable
     [InlineData("SELF_SIGNED_CERT_IN_CHAIN", "DSH-E212")]
     [InlineData("npm ERR! code E403", "DSH-E213")]
     [InlineData("npm ERR! code EACCES", "DSH-E214")]
+    [InlineData("npm warn cleanup EPERM\nnpm error code EIDLETIMEOUT\nnpm error Idle timeout reached for host registry.npmjs.org:443", "DSH-E211")]
+    [InlineData("npm error code ECONNRESET", "DSH-E211")]
+    [InlineData("npm warn network ECONNRESET\nnpm error code EACCES", "DSH-E214")]
     public void NpmFailuresMapToStableActionableErrors(string stderr, string expectedCode)
     {
         var error = NpmFailureClassifier.Classify([stderr]);

@@ -30,6 +30,7 @@ public sealed class NpmInstallRunner : INpmInstallRunner
     public static readonly TimeSpan PreparationTimeout = TimeSpan.FromMinutes(10);
     public static readonly TimeSpan NoProgressTimeout = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan ProgressInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ProgressReportInterval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan DefaultOutputDrainTimeout = TimeSpan.FromSeconds(5);
     private const int MaximumCapturedErrorLines = 100;
     private readonly IRecentLogBuffer? _recentLogs;
@@ -108,7 +109,8 @@ public sealed class NpmInstallRunner : INpmInstallRunner
             stderrTask = ReadOutputAsync(launch.StandardError, ProcessOutputSource.StandardError, standardError);
             var startedAt = _timeProvider.GetTimestamp();
             var lastProgressAt = startedAt;
-            var progress = GetProgress(workingDirectory);
+            var lastReportAt = startedAt;
+            var progress = await Task.Run(() => GetProgress(workingDirectory, cancellationToken), cancellationToken);
             launch.Resume();
             _recentLogs?.AddDesktop($"npm 锁定安装进程已创建并加入 Job Object，PID {launch.Process.Id}。");
 
@@ -122,13 +124,19 @@ public sealed class NpmInstallRunner : INpmInstallRunner
                     break;
                 }
 
-                var next = GetProgress(workingDirectory);
+                var next = await Task.Run(() => GetProgress(workingDirectory, cancellationToken), cancellationToken);
                 if (next != progress)
                 {
                     progress = next;
                     lastProgressAt = _timeProvider.GetTimestamp();
                 }
                 var now = _timeProvider.GetTimestamp();
+                if (_timeProvider.GetElapsedTime(lastReportAt, now) >= ProgressReportInterval)
+                {
+                    ReportProgress(progress, _timeProvider.GetElapsedTime(startedAt, now),
+                        _timeProvider.GetElapsedTime(lastProgressAt, now));
+                    lastReportAt = now;
+                }
                 if (_timeProvider.GetElapsedTime(startedAt, now) >= _preparationTimeout
                     || _timeProvider.GetElapsedTime(lastProgressAt, now) >= _noProgressTimeout)
                 {
@@ -325,7 +333,17 @@ public sealed class NpmInstallRunner : INpmInstallRunner
         }
     }
 
-    private static InstallProgress GetProgress(string root)
+    private void ReportProgress(InstallProgress progress, TimeSpan elapsed, TimeSpan idle)
+    {
+        var activity = idle >= TimeSpan.FromSeconds(30)
+            ? $"等待下载响应，连续 {idle.TotalSeconds:F0} 秒无新增文件，网络请求会自动重试"
+            : "正在下载或解压依赖";
+        _recentLogs?.AddDesktop(
+            $"DSH 安装进度：已写入 {progress.Bytes / (1024d * 1024d):F1} MiB，{progress.FileCount:N0} 个文件；"
+            + $"已用 {elapsed:mm\\:ss}；{activity}，可取消。");
+    }
+
+    private static InstallProgress GetProgress(string root, CancellationToken cancellationToken)
     {
         try
         {
@@ -334,6 +352,7 @@ public sealed class NpmInstallRunner : INpmInstallRunner
             var count = 0;
             foreach (var file in files)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 count++;
                 try { bytes += new FileInfo(file).Length; }
                 catch (IOException) { }

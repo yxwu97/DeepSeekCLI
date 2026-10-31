@@ -187,6 +187,38 @@ public sealed class HarnessProcessManagerTests
     }
 
     [Fact]
+    public async Task QuietNpmInstallReportsProgressAndCanStillBeCancelled()
+    {
+        var fixture = CreateNpmFixture("--tree");
+        using var cancellation = new CancellationTokenSource();
+        var progress = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Logs.LineAdded += (_, line) =>
+        {
+            if (line.Text.StartsWith("DSH 安装进度：", StringComparison.Ordinal))
+                progress.TrySetResult(line.Text);
+        };
+        var runner = new NpmInstallRunner(fixture.Logs);
+        var run = runner.RunAsync(fixture.ScriptPath, fixture.Root, cancellation.Token);
+        try
+        {
+            var pid = await fixture.ChildPid.Task.WaitAsync(ObservationTimeout);
+            var message = await progress.Task.WaitAsync(TimeSpan.FromSeconds(18));
+            Assert.Contains("已用", message, StringComparison.Ordinal);
+            Assert.Contains("可取消", message, StringComparison.Ordinal);
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(ObservationTimeout));
+            await AssertProcessExitedAsync(pid);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            try { await run.WaitAsync(ObservationTimeout); }
+            catch (OperationCanceledException) { }
+            Directory.Delete(fixture.Root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task CancellingNpmInstallReapsProcessTree()
     {
         var fixture = CreateNpmFixture("--tree");
